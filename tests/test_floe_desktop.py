@@ -42,10 +42,11 @@ class FloeDesktopAndSettingsTest(unittest.TestCase):
                     self.assertEqual(argv[3:], ['--trade-date', '20261120'])
 
     def test_floe_launcher_cli_and_run_script_dispatcher(self):
+        import version
         launcher = str(PROJECT_ROOT / 'floe_app.py')
         ver_proc = subprocess.run([sys.executable, launcher, '--version'], capture_output=True, text=True)
         self.assertEqual(ver_proc.returncode, 0)
-        self.assertIn('Floe v2.0.0', ver_proc.stdout)
+        self.assertIn(f'Floe v{version.APP_VERSION}', ver_proc.stdout)
 
         with tempfile.TemporaryDirectory() as tmp:
             mini_script = pathlib.Path(tmp) / 'hello_sub.py'
@@ -283,6 +284,67 @@ class FloeDesktopAndSettingsTest(unittest.TestCase):
             us.SETTINGS_FILE = orig_sf
             us._INITIAL_SETTINGS_FILE = orig_init_sf
             app_paths.reset_path_cache()
+
+    def test_packaged_ssl_ca_bundle_and_github_proxy_fallback(self):
+        """复现 GitHub Actions 打包二进制丢失 runner 硬编码证书路径导致的 SSL 报错，及直连下境外检查更新局部代理回退。"""
+        import ssl
+        import urllib.error
+        import urllib.request
+        import app_paths
+        import net_guard
+
+        dead_runner_cert = '/Users/runner/hostedtoolcache/Python/3.10.15/arm64/etc/openssl/cert.pem'
+        with mock.patch.dict(os.environ, {
+            'SSL_CERT_FILE': dead_runner_cert,
+            'REQUESTS_CA_BUNDLE': dead_runner_cert,
+            'CURL_CA_BUNDLE': '',
+        }, clear=False):
+            ca_file = app_paths.ensure_ssl_certificates()
+            self.assertTrue(ca_file and os.path.isfile(ca_file), f'Expected valid CA bundle, got: {ca_file}')
+            self.assertEqual(os.environ['SSL_CERT_FILE'], ca_file)
+            self.assertEqual(os.environ['REQUESTS_CA_BUNDLE'], ca_file)
+
+            ctx = ssl._create_default_https_context()
+            self.assertGreater(len(ctx.get_ca_certs()), 0)
+
+            sub_env = app_paths.subprocess_env()
+            self.assertEqual(sub_env.get('SSL_CERT_FILE'), ca_file)
+            self.assertEqual(sub_env.get('REQUESTS_CA_BUNDLE'), ca_file)
+
+        # 验证默认国内直连模式下，访问 GitHub Release 超时且本机代理存活时可无污染局部重试成功
+        class _ProxyResp:
+            status = 200
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                return False
+            def read(self):
+                return b'{"tag_name": "v2.0.1"}'
+
+        captured_tunnel = {}
+
+        class _FakeOpener:
+            def open(self, req_obj, timeout=None):
+                captured_tunnel['host'] = req_obj.host
+                captured_tunnel['tunnel'] = getattr(req_obj, '_tunnel_host', None)
+                return _ProxyResp()
+
+        net_guard.reconfigure_network_mode('direct')
+        self.assertEqual(os.environ.get('no_proxy'), '*')
+
+        req = urllib.request.Request('https://api.github.com/repos/Leo-luxy/Floe/releases/latest')
+        with mock.patch('urllib.request.urlopen', side_effect=urllib.error.URLError(TimeoutError('timed out'))), \
+             mock.patch.object(net_guard, '_raw_system_proxy_dict', return_value={'https': 'http://127.0.0.1:10808'}), \
+             mock.patch.object(net_guard, '_reachable', return_value=True), \
+             mock.patch('urllib.request.build_opener', return_value=_FakeOpener()):
+            with net_guard.urlopen_with_optional_proxy(req, timeout=3.0) as resp:
+                payload = json.loads(resp.read().decode('utf-8'))
+
+        self.assertEqual(payload['tag_name'], 'v2.0.1')
+        self.assertEqual(captured_tunnel.get('host'), '127.0.0.1:10808')
+        self.assertEqual(captured_tunnel.get('tunnel'), 'api.github.com')
+        # 全局必须继续保持国内直连保护，不污染 A 股数据源采集
+        self.assertEqual(os.environ.get('no_proxy'), '*')
 
 
 if __name__ == '__main__':

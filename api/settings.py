@@ -283,7 +283,7 @@ def check_for_updates():
         },
     )
     try:
-        with urllib.request.urlopen(req, timeout=5.0) as resp:
+        with net_guard.urlopen_with_optional_proxy(req, timeout=5.0) as resp:
             release = json.loads(resp.read().decode('utf-8', errors='replace'))
     except urllib.error.HTTPError as exc:
         return jsonify({
@@ -293,11 +293,13 @@ def check_for_updates():
             'message': f'GitHub Release 查询返回 HTTP {exc.code}，可点击前往发布页手动查看',
         })
     except Exception as exc:
+        inner = getattr(exc, 'reason', None)
+        err_tag = f'{type(exc).__name__}: {type(inner).__name__}' if inner is not None else type(exc).__name__
         return jsonify({
             'success': False,
             'current_version': current_ver,
             'releases_url': version.GITHUB_RELEASES_PAGE,
-            'message': f'暂时无法连接 GitHub 更新源（{type(exc).__name__}）。若处于国内受限网络，可在设置中临时切换为「跟随系统代理」或直接访问发布页。',
+            'message': f'暂时无法连接 GitHub 更新源（{err_tag}）。若处于国内受限网络，可在设置中临时切换为「跟随系统代理」或直接访问发布页。',
         })
 
     latest_tag = str(release.get('tag_name') or '').strip()
@@ -371,6 +373,7 @@ def run_system_diagnostics():
     })
 
     # 3. 国内实时行情网关出站网络权限（东方财富 push2 轻量探测）
+    app_paths.ensure_ssl_certificates()
     net_info = net_guard.status()
     try:
         req = urllib.request.Request(
@@ -388,13 +391,15 @@ def run_system_diagnostics():
             'detail_en': f'Eastmoney market feed reachable · Mode: {us.get_network_mode()}',
         })
     except Exception as exc:
+        inner = getattr(exc, 'reason', None)
+        err_tag = f'{type(inner).__name__}' if inner is not None else type(exc).__name__
         checks.append({
             'id': 'market_network',
             'ok': False,
             'title_zh': '出站网络与国内行情源连通性',
             'title_en': 'Outbound Network & Market Data Feed',
-            'detail_zh': f'行情源连接受阻（{type(exc).__name__}），请检查系统网络或防火墙出站限制',
-            'detail_en': f'Market feed unreachable ({type(exc).__name__}); check network or firewall',
+            'detail_zh': f'行情源连接受阻（{err_tag}），请检查系统网络或防火墙出站限制',
+            'detail_en': f'Market feed unreachable ({err_tag}); check network or firewall',
         })
 
     # 4. 操作系统签名与信任指引提示

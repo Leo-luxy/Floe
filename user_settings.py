@@ -165,6 +165,15 @@ def _build_models_endpoints(api_base):
     return [f'{base}/models', f'{base}/v1/models']
 
 
+def _urlopen_cloud_api(req, timeout):
+    """发送云端大模型 API 请求：自动保障打包态 SSL 根证书，并在直连受阻时可选复用存活系统代理。"""
+    try:
+        import net_guard
+        return net_guard.urlopen_with_optional_proxy(req, timeout=timeout)
+    except ImportError:
+        return urllib.request.urlopen(req, timeout=timeout)
+
+
 def fetch_openai_compatible_models(api_base, api_key, timeout=10):
     """验证 OpenAI 兼容接口（如 DeepSeek API）连接并返回服务端可用模型 ID 列表。"""
     headers = {
@@ -177,7 +186,7 @@ def fetch_openai_compatible_models(api_base, api_key, timeout=10):
     for idx, url in enumerate(endpoints):
         req = urllib.request.Request(url, headers=headers, method='GET')
         try:
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
+            with _urlopen_cloud_api(req, timeout=timeout) as resp:
                 body = json.loads(resp.read().decode('utf-8', errors='replace'))
             raw_items = body.get('data') if isinstance(body, dict) else None
             if raw_items is None and isinstance(body, dict):
@@ -240,7 +249,7 @@ def call_openai_compatible_chat(api_base, api_key, model, messages, options=None
     for idx, url in enumerate(endpoints):
         req = urllib.request.Request(url, data=payload, headers=headers, method='POST')
         try:
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
+            with _urlopen_cloud_api(req, timeout=timeout) as resp:
                 body = json.loads(resp.read().decode('utf-8', errors='replace'))
             choices = body.get('choices') or []
             if not choices:

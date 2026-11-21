@@ -35,9 +35,12 @@ Python 的 requests / urllib 自动读取系统代理设置，于是 akshare、T
 注意：环境变量名不要以 `_proxy` 结尾，否则会被 urllib 当成代理配置读进去。
 """
 
+import base64
 import os
 import socket
 import sys
+import urllib.error
+import urllib.parse
 import urllib.request
 
 _STATE = {
@@ -68,14 +71,53 @@ _PROXY_ENV_KEYS = (
 )
 
 _ORIG_URLLIB_GETPROXIES = urllib.request.getproxies
+_INITIAL_PROXY_ENV = {
+    k: os.environ[k] for k in _PROXY_ENV_KEYS if os.environ.get(k, '').strip()
+}
+
+
+def _ensure_ssl_ready():
+    """确保打包态与源码态均已挂载有效的 CA 根证书束。"""
+    try:
+        import app_paths
+        return app_paths.ensure_ssl_certificates()
+    except Exception:
+        return ''
+
+
+def _raw_system_proxy_dict():
+    """读取操作系统原生代理配置与初始环境变量代理（不受运行时 no_proxy=* 短路干扰）。"""
+    merged = {}
+    for getter_name in ('getproxies_macosx_sysconf', 'getproxies_registry'):
+        getter = getattr(urllib.request, getter_name, None)
+        if callable(getter):
+            try:
+                sys_map = getter() or {}
+                if isinstance(sys_map, dict):
+                    merged.update(sys_map)
+            except Exception:
+                pass
+
+    try:
+        orig_map = _ORIG_URLLIB_GETPROXIES() or {}
+        if isinstance(orig_map, dict):
+            for k, v in orig_map.items():
+                if str(k).lower() not in ('no', 'no_proxy') and v:
+                    merged.setdefault(k, v)
+    except Exception:
+        pass
+
+    for env_key, env_val in _INITIAL_PROXY_ENV.items():
+        scheme = env_key.lower().replace('_proxy', '')
+        if scheme and env_val:
+            merged.setdefault(scheme, env_val)
+
+    return merged
 
 
 def _system_proxy_targets():
     """返回系统配置的代理 [(host, port), ...]（去重）"""
-    try:
-        proxies = _ORIG_URLLIB_GETPROXIES()
-    except Exception:
-        return []
+    proxies = _raw_system_proxy_dict()
 
     targets = []
     for scheme, url in proxies.items():
@@ -84,6 +126,8 @@ def _system_proxy_targets():
             continue
         netloc = url.split('//', 1)[1] if '//' in url else url
         netloc = netloc.rstrip('/')
+        if '@' in netloc:
+            netloc = netloc.rsplit('@', 1)[1]
         host, _, port = netloc.partition(':')
         if not host:
             continue
@@ -132,6 +176,9 @@ def restore_system_proxy():
         os.environ.pop('no_proxy', None)
     if os.environ.get('NO_PROXY') == '*':
         os.environ.pop('NO_PROXY', None)
+    for key, val in _INITIAL_PROXY_ENV.items():
+        if val and not os.environ.get(key):
+            os.environ[key] = val
     try:
         urllib.request.getproxies = _ORIG_URLLIB_GETPROXIES
         urllib.request.install_opener(urllib.request.build_opener())
@@ -169,12 +216,13 @@ def _use_proxy_requested():
 
 def ensure_network_ready(verbose=False):
     """
-    初始化本进程的网络模式。幂等，可重复调用。
+    初始化本进程的网络模式与 SSL 根证书束。幂等，可重复调用。
 
     默认直接直连；只有显式设置 GP_ANA_NET_MODE=proxy 时才考虑使用系统代理。
 
     返回 'direct-default' | 'proxy-active' | 'direct-fallback' | 'proxy-none'
     """
+    _ensure_ssl_ready()
     if _STATE['checked']:
         return _STATE['mode']
 
@@ -208,6 +256,85 @@ def ensure_network_ready(verbose=False):
     return _STATE['mode']
 
 
+def _resolve_live_http_proxy(target_scheme='https'):
+    """查找本机系统配置中在线可连的 HTTP/HTTPS 代理，返回 (proxy_scheme, hostport, auth_header) 或 None。"""
+    proxies = _raw_system_proxy_dict()
+    if not proxies:
+        return None
+
+    t_scheme = str(target_scheme or 'https').lower()
+    raw_url = (proxies.get(t_scheme) or proxies.get('https') or proxies.get('http') or proxies.get('all') or '').strip()
+    if not raw_url:
+        return None
+
+    if '://' not in raw_url:
+        raw_url = 'http://' + raw_url
+    parsed = urllib.parse.urlsplit(raw_url)
+    p_scheme = (parsed.scheme or 'http').lower()
+    if p_scheme not in ('http', 'https') or not parsed.hostname:
+        return None
+
+    p_port = parsed.port or (443 if p_scheme == 'https' else 80)
+    if not _reachable(parsed.hostname, p_port, timeout=0.6):
+        return None
+
+    auth_hdr = ''
+    if parsed.username and parsed.password:
+        raw_cred = f'{urllib.parse.unquote(parsed.username)}:{urllib.parse.unquote(parsed.password)}'
+        auth_hdr = 'Basic ' + base64.b64encode(raw_cred.encode('utf-8')).decode('ascii')
+
+    return p_scheme, f'{parsed.hostname}:{p_port}', auth_hdr
+
+
+def urlopen_with_optional_proxy(req, timeout=10.0):
+    """
+    发送非国内行情类的外部管理请求（如 GitHub Release 检查更新、境外大模型 API 验证）：
+    1. 优先按当前模式发起标准 urlopen 请求；
+    2. 若默认直连下发生网络层阻断/超时，且检测到本机配置了在线可用的系统代理，
+       自动构造局部隧道请求重试一次（绝不修改全局 no_proxy，不影响任何 A 股数据源直连）。
+    """
+    _ensure_ssl_ready()
+    try:
+        return urllib.request.urlopen(req, timeout=timeout)
+    except urllib.error.HTTPError:
+        raise
+    except Exception as first_exc:
+        if _STATE.get('mode') == 'proxy-active':
+            raise
+        if 'CERTIFICATE_VERIFY_FAILED' in str(first_exc):
+            raise
+
+        if isinstance(req, urllib.request.Request):
+            full_url = req.full_url
+            data = req.data
+            method = req.get_method()
+            headers = dict(req.header_items())
+        else:
+            full_url = str(req)
+            data = None
+            method = 'GET'
+            headers = {}
+
+        target_scheme = urllib.parse.urlsplit(full_url).scheme or 'https'
+        live_proxy = _resolve_live_http_proxy(target_scheme)
+        if not live_proxy:
+            raise
+
+        p_scheme, hostport, auth_hdr = live_proxy
+        cloned = urllib.request.Request(full_url, data=data, headers=headers, method=method)
+        _ = (cloned.type, cloned.host)
+        if auth_hdr:
+            cloned.add_header('Proxy-authorization', auth_hdr)
+        cloned.set_proxy(hostport, p_scheme)
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        try:
+            return opener.open(cloned, timeout=timeout)
+        except urllib.error.HTTPError:
+            raise
+        except Exception:
+            raise first_exc
+
+
 def _announce(verbose):
     # 默认直连是正常状态，不打印，避免批量抓取时每个子进程都刷一行；
     # 「要求走代理却连不上」属于异常，一定打印出来。
@@ -238,9 +365,11 @@ def retry_on_proxy_error(func, *args, **kwargs):
 
 
 def status():
-    """返回当前网络模式的可读信息（供自检与排查）"""
+    """返回当前网络模式与 SSL 证书状态的可读信息（供自检与排查）"""
     ensure_network_ready()
-    return dict(_STATE)
+    info = dict(_STATE)
+    info['ssl_cafile'] = _ensure_ssl_ready()
+    return info
 
 
 def _main():

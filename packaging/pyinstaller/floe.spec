@@ -11,6 +11,9 @@ from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs, co
 
 SPEC_DIR = os.path.dirname(os.path.abspath(SPEC))
 PROJECT_ROOT = os.path.abspath(os.path.join(SPEC_DIR, '..', '..'))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+import version as _floe_ver
 
 # 严禁打入发布包的私密/本地缓存文件黑名单
 EXCLUDED_ROOT_PY = {
@@ -42,9 +45,9 @@ if os.path.isdir(sf_dir):
     for py_file in glob.glob(os.path.join(sf_dir, '*.py')):
         datas.append((py_file, 'stocks_filter'))
 
-# 第三方科学计算与金融库内置资源文件与动态链接库
+# 第三方科学计算、HTTPS 根证书束与金融库内置资源文件及动态链接库
 binaries = []
-for pkg_data in ('akshare', 'tushare', 'py_mini_racer'):
+for pkg_data in ('certifi', 'akshare', 'tushare', 'py_mini_racer'):
     try:
         datas += collect_data_files(pkg_data)
     except Exception:
@@ -57,6 +60,7 @@ for pkg_bin in ('py_mini_racer', 'talib'):
         pass
 
 hiddenimports = [
+    'certifi',
     'flask',
     'werkzeug',
     'jinja2',
@@ -146,10 +150,13 @@ if sys.platform == 'darwin':
         info_plist={
             'CFBundleName': 'Floe',
             'CFBundleDisplayName': 'Floe',
-            'CFBundleShortVersionString': '2.0.0',
-            'CFBundleVersion': '2.0.0',
+            'CFBundleShortVersionString': _floe_ver.APP_VERSION,
+            'CFBundleVersion': _floe_ver.APP_VERSION,
             'NSHighResolutionCapable': True,
             'NSRequiresAquaSystemAppearance': False,
             'LSMinimumSystemVersion': '11.0',
+            'NSAppTransportSecurity': {
+                'NSAllowsLocalNetworking': True,
+            },
         },
     )

@@ -17,15 +17,92 @@
 
 import os
 import shlex
+import ssl
 import sys
 import tempfile
 import uuid
+
+_ORIG_SSL_CREATE_DEFAULT_CONTEXT = ssl.create_default_context
+
+_SSL_CACHE = {
+    'configured': False,
+    'cafile': '',
+}
 
 _PACKAGED_DIR_CACHE = {
     'key': None,
     'path': None,
     'fallback': False,
 }
+
+
+def resolve_ca_bundle_path() -> str:
+    """定位跨平台可用的 PEM 根证书束（解决 PyInstaller 冻结态丢失构建机硬编码 OpenSSL 证书路径问题）。"""
+    for env_key in ('SSL_CERT_FILE', 'REQUESTS_CA_BUNDLE'):
+        existing = os.environ.get(env_key, '').strip()
+        if existing and os.path.isfile(existing) and os.path.getsize(existing) > 0:
+            return os.path.abspath(existing)
+
+    candidates = []
+    try:
+        import certifi
+        c_where = certifi.where()
+        if c_where:
+            candidates.append(c_where)
+    except Exception:
+        pass
+
+    bundle_dir = get_bundle_dir()
+    candidates.extend([
+        os.path.join(bundle_dir, 'certifi', 'cacert.pem'),
+        '/etc/ssl/cert.pem',                        # macOS / BSD / Alpine
+        '/etc/ssl/certs/ca-certificates.crt',       # Debian / Ubuntu
+        '/etc/pki/tls/certs/ca-bundle.crt',         # Fedora / RHEL / CentOS
+        '/etc/ssl/ca-bundle.pem',                   # openSUSE
+    ])
+
+    for cand in candidates:
+        try:
+            if cand and os.path.isfile(cand) and os.path.getsize(cand) > 0:
+                return os.path.abspath(cand)
+        except OSError:
+            continue
+    return ''
+
+
+def ensure_ssl_certificates() -> str:
+    """注入跨平台 CA 根证书环境变量并挂载默认 HTTPS 上下文，防止打包后 urllib/ssl 报 CERTIFICATE_VERIFY_FAILED。"""
+    ca_path = resolve_ca_bundle_path()
+    if ca_path:
+        for env_key in ('SSL_CERT_FILE', 'REQUESTS_CA_BUNDLE', 'CURL_CA_BUNDLE'):
+            cur_val = os.environ.get(env_key, '').strip()
+            if not cur_val or not os.path.isfile(cur_val):
+                os.environ[env_key] = ca_path
+
+    if (not _SSL_CACHE['configured']) or (_SSL_CACHE['cafile'] != ca_path):
+        sys_mac_ca = '/etc/ssl/cert.pem' if (sys.platform == 'darwin' and os.path.isfile('/etc/ssl/cert.pem')) else ''
+
+        def _floe_default_https_context(*args, **kwargs):
+            if not kwargs.get('cafile') and ca_path and os.path.isfile(ca_path):
+                kwargs['cafile'] = ca_path
+            ctx = _ORIG_SSL_CREATE_DEFAULT_CONTEXT(*args, **kwargs)
+            if sys_mac_ca and os.path.abspath(sys_mac_ca) != os.path.abspath(ca_path or ''):
+                try:
+                    ctx.load_verify_locations(cafile=sys_mac_ca)
+                except Exception:
+                    pass
+            if os.name == 'nt':
+                try:
+                    ctx.load_default_certs(ssl.Purpose.SERVER_AUTH)
+                except Exception:
+                    pass
+            return ctx
+
+        ssl._create_default_https_context = _floe_default_https_context
+        _SSL_CACHE['configured'] = True
+        _SSL_CACHE['cafile'] = ca_path
+
+    return ca_path
 
 
 def reset_path_cache() -> None:
@@ -310,6 +387,7 @@ def _ensure_writable_runtime_caches(user_dir: str) -> None:
 def activate_runtime_paths() -> str:
     """在打包模式下初始化用户目录并挂载至 sys.path 首位；源码首次克隆若缺 config.py 自动用模板初始化。"""
     import shutil
+    ensure_ssl_certificates()
     bundle_dir = get_bundle_dir()
     cfg_py = os.path.join(bundle_dir, 'config.py')
     cfg_ex = os.path.join(bundle_dir, 'config.example.py')
@@ -428,10 +506,15 @@ def rewrite_shell_python_cmd(command: str) -> str:
 
 
 def subprocess_env() -> dict:
-    """生成传递给子进程的环境变量字典，确保子进程继承用户数据目录与 UTF-8 编码。"""
+    """生成传递给子进程的环境变量字典，确保子进程继承用户数据目录、SSL 根证书与 UTF-8 编码。"""
     env = os.environ.copy()
     env.setdefault('PYTHONIOENCODING', 'utf-8')
     env.setdefault('PYTHONUTF8', '1')
+    ca_path = resolve_ca_bundle_path()
+    if ca_path:
+        env.setdefault('SSL_CERT_FILE', ca_path)
+        env.setdefault('REQUESTS_CA_BUNDLE', ca_path)
+        env.setdefault('CURL_CA_BUNDLE', ca_path)
     if is_packaged_mode():
         user_dir = get_user_data_dir()
         bundle_dir = get_bundle_dir()

@@ -343,6 +343,7 @@ def _run_doctor() -> int:
     print(f'User Data Dir  : {app_paths.get_user_data_dir()}')
     net = net_guard.status()
     print(f'Network Guard  : {net.get("detail")}')
+    print(f'SSL CA Bundle  : {net.get("ssl_cafile") or "missing"}')
     try:
         tokens = tushare_client.resolve_tokens()
         print(f'Tushare Tokens : Ready ({len(tokens)} configured)')

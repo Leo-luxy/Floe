@@ -1,3 +1,24 @@
+# v2.0.1 — 桌面安装包 HTTPS 证书链修复 · 境外检查更新局部代理回退 · Windows 便携回退
+
+> 🛠️ 核心主题：**跨平台桌面安装包开箱即用连通性与权限容错补强**。解决云端构建桌面包在用户设备上丢失 OpenSSL 默认根证书路径导致的 HTTPS 报错，并完善受限网络与受控目录环境下的零配置启动体验。
+
+---
+
+## 🐛 修复
+
+- **桌面安装包 HTTPS 根证书链自动挂载 (`app_paths.py`, `packaging/pyinstaller/floe.spec`)**：修复 GitHub Actions 云端构建的桌面二进制因 `libcrypto` 硬编码构建机证书路径（下载至用户设备后路径不存在）导致 API 连接验证、检查更新及实时行情探测报 `[SSL: CERTIFICATE_VERIFY_FAILED]` / `URLError` 的问题；现打包内置 `certifi` 根证书束并在启动时自动注入 `SSL_CERT_FILE`、`REQUESTS_CA_BUNDLE` 及 `ssl._create_default_https_context`，同时透传给全部 `--run-script` 子进程。
+- **境外检查更新与云端 API 局部代理智能回退 (`net_guard.py`, `user_settings.py`, `api/settings.py`)**：在保持全部 A 股国内数据源 `100%` 纯净直连（`no_proxy=*`）的前提下，当检查 GitHub 更新或访问境外大模型接口发生网络阻断/超时且检测到本机系统代理端口在线时，自动构造无全局污染的局部隧道单次重试，并展开显示 `URLError` 内部具体异常类型。
+- **Windows AppData 权限受阻自动回退便携模式 (`app_paths.py`, `floe_app.py`)**：修复部分开启「受控文件夹访问」或安装第三方安全管家的 Windows 设备拦截 `%APPDATA%\Floe` 写入（`[WinError 5] 拒绝访问`）导致启动失败的问题；自动实测目录写权限并降级至程序同级 `Floe_Data` 便携目录，同步收拢受限的 `TEMP`、`WEBVIEW2_USER_DATA_FOLDER` 与 `MPLCONFIGDIR` 缓存。
+- **npm 全局包规范化 (`packaging/npm/package.json`)**：规范化 `bin` 入口相对路径，消除 npm 10+ 校验警告。
+
+---
+
+## ✅ 质量
+
+- 回归单元测试扩充至 **311 项**（全部通过），新增失效构建机证书路径修复、局部代理隧道回退与 Windows 受控目录自动便携降级专项测试。
+
+---
+
 # v2.0.0 — 品牌焕新 Floe · 现代量化工作台 · 跨平台桌面应用与多渠道分发
 
 > 🚀 核心主题：**开箱即用的跨平台桌面软件与量化工作流全面升级**。项目正式命名为 **Floe**（适合中国宝宝体质的 A 股选股软件），告别繁琐配置与显卡门槛，实现「一键安装 + 云端/本地双模 AI + 三步闭环选股回测 + 分厘级 FIFO 台账」。

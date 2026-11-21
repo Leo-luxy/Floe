@@ -6,7 +6,7 @@ APP_SLOGAN_ZH = "适合中国宝宝体质的 A 股选股软件"
 APP_SLOGAN_EN = "A-Share Screener Tailored for CN Investors"
 APP_DISPLAY_ZH = f"{APP_NAME} · {APP_SLOGAN_ZH}"
 APP_DISPLAY_EN = f"{APP_NAME} · {APP_SLOGAN_EN}"
-APP_VERSION = "2.0.0"
+APP_VERSION = "2.0.1"
 AUTHOR_EMAIL = "luleo856@gmail.com"
 
 GITHUB_REPO = "Leo-luxy/Floe"
@@ -19,14 +19,14 @@ HOMEBREW_TAP = "Leo-luxy/tap"
 HOMEBREW_CASK = "floe"
 NPM_PACKAGE = "@leo-luxy/floe"
 
-RELEASE_CHANGELOG_ZH = """### Floe v2.0.0 更新内容
-- **全新跨平台桌面软件架构**：升级为独立原生窗口应用（兼容 macOS / Windows / Linux），自带顶部系统菜单栏极简小企鹅常驻快捷入口，并支持端口冲突自动顺延。
-- **核心量化工作流重塑**：聚焦「01 市场选股（仅展示当日新入场标的）→ 02 关注股票池 → 03 策略回测与监控（默认简化版，按本机首次入选日起算累计绩效）」三步闭环。
-- **买卖记录台账与逐手收益核算**：成交均价支持三位小数（0.001），按先进先出（FIFO）核算历史已实现盈亏与最新现价浮动盈亏，支持展开查看每一手交易明细。
-- **个性化与国际化设置中心**：内置「红涨瞭望 / 绿跌闭眼」双款企鹅图标切换、中英双语界面与 AI 研报输出语言联动、两步式 API 模型验证选型、系统权限体检及数据一键备份恢复。"""
+RELEASE_CHANGELOG_ZH = """### Floe v2.0.1 更新内容
+- **修复桌面安装包 HTTPS 证书校验报错**：打包环境内置并自动挂载跨平台 `certifi` 与系统 CA 根证书束，彻底解决下载安装的桌面端在 API 连接验证、行情探测与检查更新时报 `CERTIFICATE_VERIFY_FAILED` 的问题。
+- **境外检查更新与云端 API 局部代理回退**：在保持 A 股国内数据源 100% 纯净直连的前提下，若检查 GitHub 更新或访问境外 API 直连超时且检测到本机系统代理在线，自动单次局部复用代理隧道。
+- **Windows 受限权限自动便携回退**：当 `%APPDATA%\\Floe` 被受控文件夹访问或第三方安全软件拦截时，自动降级至程序同级 `Floe_Data` 目录并收拢缓存，免管理员零配置启动。
+- **2.0 全新桌面量化工作台**：支持「01 市场选股 → 02 关注股票池 → 03 策略回测监控」三步闭环、三位小数（`0.001`）FIFO 买卖台账、红涨/绿跌双企鹅图标与中英双语联动。"""
 
-RELEASE_CHANGELOG_EN = """### Floe v2.0.0 Release Highlights
-- **Native Cross-Platform Desktop App**: Runs in a standalone native window on macOS, Windows, and Linux with menu-bar/tray penguin quick controls and automatic port fallback.
-- **Streamlined Core Quant Workflow**: Focused 3-step pipeline: `01 Market Screener` (today's new entries only) → `02 Watchlist Pool` → `03 Backtest & Monitor` (Simple MA5>MA20 preset by default, tracking cohort returns since first local selection).
-- **FIFO Trading Ledger**: 3-decimal trade fill precision (`0.001`), real-time unrealized + realized P&L calculation, and expandable lot-by-lot breakdown.
-- **Settings, Dual Icons & Bilingual Engine**: Switchable Bull/Bear penguin icons, instant Chinese/English UI + AI report language sync, 2-step API model verification, permission diagnostics, and `.zip` backup/restore."""
+RELEASE_CHANGELOG_EN = """### Floe v2.0.1 Release Highlights
+- **Fixed Packaged Desktop SSL Certificate Verification**: Automatically bundles and mounts cross-platform `certifi` + OS root CA certificates at startup, resolving `CERTIFICATE_VERIFY_FAILED` on API verification, market feed checks, and update checks in downloaded desktop builds.
+- **Smart Local Proxy Fallback for GitHub & Overseas APIs**: Keeps all domestic A-share market feeds 100% direct while automatically retrying via active system proxy tunnels when GitHub release checks or overseas LLM endpoints time out.
+- **Windows Restricted-Permission Portable Fallback**: Automatically falls back to a side-by-side `Floe_Data` portable directory when `%APPDATA%\\Floe` is blocked by Controlled Folder Access or security suites.
+- **Floe 2.0 Quant Workbench**: Standalone native desktop app, 3-step `Screener → Watchlist → Backtest` pipeline, 3-decimal (`0.001`) FIFO ledger, Bull/Bear penguin icons, and Chinese/English bilingual sync."""
