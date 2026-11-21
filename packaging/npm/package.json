@@ -21,7 +21,7 @@
     "node": ">=18.0.0"
   },
   "bin": {
-    "floe": "./bin/floe.js"
+    "floe": "bin/floe.js"
   },
   "files": [
     "bin/",
