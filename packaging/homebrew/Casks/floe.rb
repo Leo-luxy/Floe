@@ -2,8 +2,8 @@ cask "floe" do
   arch arm: "arm64", intel: "x64"
 
   version "2.0.0"
-  sha256 arm:   "REPLACE_WITH_MACOS_ARM64_DMG_SHA256",
-         intel: "REPLACE_WITH_MACOS_X64_DMG_SHA256"
+  sha256 arm:   "8dbb983c560a11d5e194df1895b70f4d97af21a51e86fc9a41a557e1236f250f",
+         intel: "69f556838dc7a09e3c47fb40d2b3deef196ab804f2e8dfaf57f32d07dc8e6922"
 
   url "https://github.com/Leo-luxy/Floe/releases/download/v#{version}/Floe-v#{version}-macos-#{arch}.dmg"
   name "Floe"
