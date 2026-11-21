@@ -28,15 +28,24 @@ def is_rate_limit(exc):
 
 
 def resolve_tokens():
-    """环境变量优先，其次使用上面的常量；占位符一律忽略。"""
+    """环境变量优先，其次读取设置页保存的 user_settings.json 与文件顶部常量；占位符一律忽略。"""
     env = os.environ.get('GP_TUSHARE_TOKENS', '')
-    values = [t.strip() for t in env.split(',')] if env.strip() else [PRIMARY_TOKEN, *BACKUP_TOKENS]
+    if env.strip():
+        values = [t.strip() for t in env.split(',')]
+    else:
+        saved = []
+        try:
+            from user_settings import get_saved_tushare_tokens
+            saved = get_saved_tushare_tokens()
+        except Exception:
+            pass
+        values = [*saved, PRIMARY_TOKEN, *BACKUP_TOKENS]
     tokens = []
     for value in values:
         if value and value != PLACEHOLDER and value not in tokens:
             tokens.append(value)
     if not tokens:
-        raise RuntimeError('未配置 Tushare token：请在 tushare_client.py 填写，'
+        raise RuntimeError('未配置 Tushare token：请在系统设置页填写，'
                            '或设置环境变量 GP_TUSHARE_TOKENS')
     return tokens
 

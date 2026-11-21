@@ -171,11 +171,15 @@ def process_single_stock(ticker, skip_data_collection=False, skip_indicators=Fal
     print('='*80)
 
     ticker = normalize_ticker(ticker)
-    python = sys.executable or 'python'
+    try:
+        from app_paths import python_exec_cmd_prefix
+        py_runner = python_exec_cmd_prefix()
+    except Exception:
+        py_runner = f'"{sys.executable or "python"}"'
 
     # 1. 获取行情数据（如果未跳过）
     if not skip_data_collection:
-        collector = f'"{python}" "{os.path.join(PROJECT_ROOT, "data_collector.py")}"'
+        collector = f'{py_runner} "{os.path.join(PROJECT_ROOT, "data_collector.py")}"'
         code = run_command_status(f'{collector} --ticker {ticker}', f"获取 {ticker} 行情数据")
         if code == 3:
             # 退出码 3 = 前复权基准变化（除权除息）。增量追加会造假跌，必须用统一基准重建。
@@ -212,7 +216,7 @@ def process_single_stock(ticker, skip_data_collection=False, skip_indicators=Fal
             print('指标来源验证失败，重新计算')
     if meta is None:
         cmd = (
-            f'"{python}" "{os.path.join(PROJECT_ROOT, "daily", "stock_daily_indicator_calculator.py")}"'
+            f'{py_runner} "{os.path.join(PROJECT_ROOT, "daily", "stock_daily_indicator_calculator.py")}"'
             f' --ticker {ticker} --input-dir "{DATA_DIR}" --output-dir "{DATA_DIR}"'
         )
         indicator_code = run_command_status(cmd, f"计算 {ticker} 技术指标")
@@ -231,7 +235,7 @@ def process_single_stock(ticker, skip_data_collection=False, skip_indicators=Fal
     # 3. 趋势回测（统一引擎 simple 模式，参数与预设一致）
     # 批量筛选不需要图表：跳过绘图能显著缩短整批耗时
     cmd = (
-        f'"{python}" "{os.path.join(PROJECT_ROOT, "trend_following_backtest.py")}"'
+        f'{py_runner} "{os.path.join(PROJECT_ROOT, "trend_following_backtest.py")}"'
         f' --ticker {ticker} --mode {STRATEGY} --no-plot --data-dir "{DATA_DIR}"'
     )
     success = run_command(cmd, f"趋势回测 {ticker}")
@@ -386,7 +390,12 @@ def prepare_batch(tickers, input_path, requested_asof, skip_data, run_id):
         incomplete = False
         for script, extra in [('step1_daily.py', f' --trade-date {chosen}'),
                               ('step2_daily_basic.py', ''), ('step3_filter.py', '')]:
-            cmd = f'"{sys.executable}" "{os.path.join(CURRENT_DIR, script)}"{extra}'
+            try:
+                from app_paths import python_exec_cmd_prefix
+                step_runner = python_exec_cmd_prefix()
+            except Exception:
+                step_runner = f'"{sys.executable}"'
+            cmd = f'{step_runner} "{os.path.join(CURRENT_DIR, script)}"{extra}'
             code = run_command_status(cmd, f'按 {chosen} 重建初筛 {script}')
             if code == 4 and chosen == datetime.now().strftime('%Y%m%d'):
                 chosen = selection_snapshot.previous_trade_asof(chosen)
@@ -468,7 +477,14 @@ def main():
         'error': None,
     }
 
-    output_path = os.path.join(CURRENT_DIR, args.output)
+    try:
+        import app_paths as _ap
+        work_dir = _ap.get_selection_dir() if _ap.is_packaged_mode() else CURRENT_DIR
+    except Exception:
+        work_dir = CURRENT_DIR
+    os.makedirs(work_dir, exist_ok=True)
+    output_path = args.output if os.path.isabs(args.output) else os.path.join(work_dir, args.output)
+    input_arg = args.input if os.path.isabs(args.input) else os.path.join(work_dir, args.input)
     status_path = os.path.splitext(output_path)[0] + '_status.json'
     selection_result_store.preserve_existing(output_path, status_path)
     selection_result_store.preserve_legacy_display(output_path)
@@ -479,13 +495,13 @@ def main():
     code = 3
     try:
         try:
-            stock_list = get_stock_list(args.input)
+            stock_list = get_stock_list(input_arg)
             if stock_list:
                 stock_list = [normalize_ticker(t) for t in stock_list]
                 excluded_bj = [t for t in stock_list if is_bj_ticker(t)]
                 stock_list = [t for t in stock_list if not is_bj_ticker(t)]
                 status['excluded_bj'] = excluded_bj
-                input_path = args.input if os.path.isabs(args.input) else os.path.join(CURRENT_DIR, args.input)
+                input_path = input_arg
                 status['input_sha256'] = file_hash(input_path)
         except Exception as exc:
             stock_list = None

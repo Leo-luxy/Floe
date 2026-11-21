@@ -6,14 +6,22 @@ step3_filter.py
 
 import pandas as pd
 import os
+import sys
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # ==================== 配置 ====================
 INPUT_FILE = "stocks_daily_full.csv"      # 上一步合并的完整数据
 OUTPUT_FILE = "stocks_daily_filtered.csv"       # 筛选结果保存文件
 # =============================================
 
-# 当前文件位于 stocks_filter 文件夹中，直接使用当前目录
-STOCKS_FILTER_DIR = os.path.dirname(os.path.abspath(__file__))
+# 当前文件位于 stocks_filter 文件夹中；打包模式下自动重定向至用户可写目录
+try:
+    from app_paths import get_selection_dir as _get_selection_dir
+    STOCKS_FILTER_DIR = _get_selection_dir()
+except Exception:
+    STOCKS_FILTER_DIR = os.path.dirname(os.path.abspath(__file__))
+os.makedirs(STOCKS_FILTER_DIR, exist_ok=True)
 
 # 1. 读取数据
 input_path = os.path.join(STOCKS_FILTER_DIR, INPUT_FILE)

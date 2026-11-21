@@ -63,7 +63,8 @@ class TusharePoolTest(unittest.TestCase):
     def test_tokens_from_env_and_placeholder_ignored(self):
         with mock.patch.dict(os.environ, {'GP_TUSHARE_TOKENS': 'a,YOUR_TUSHARE_TOKEN,a,b'}, clear=False):
             self.assertEqual(tc.resolve_tokens(), ['a', 'b'])
-        with mock.patch.dict(os.environ, {}, clear=True):
+        with mock.patch.dict(os.environ, {}, clear=True), \
+             mock.patch('user_settings.get_saved_tushare_tokens', return_value=[]):
             # 发布版是占位符：未配置 token 时必须明确报错，而不是拿占位符去请求
             with self.assertRaises(RuntimeError):
                 tc.resolve_tokens()

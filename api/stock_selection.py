@@ -19,7 +19,12 @@ import backtest_artifacts
 from config import DATA_DIR
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SELECTION_DIR = os.path.join(PROJECT_ROOT, "stocks_filter")
+try:
+    import app_paths as _ap
+    SELECTION_DIR = _ap.get_selection_dir()
+except Exception:
+    _ap = None
+    SELECTION_DIR = os.path.join(PROJECT_ROOT, "stocks_filter")
 
 
 def _read_current_holdings(base_path=None, saved=None):
@@ -330,8 +335,10 @@ def run_selection(task_id, preliminary, detailed):
         if preliminary:
             selection_tasks[task_id].update(progress_base=0, progress_span=15)
             _set_step_progress(task_id, 1, '获取全市场日线行情')
+            step1_cmd = (_ap.python_script_argv('stocks_filter/step1_daily.py')
+                         if _ap else [sys.executable, os.path.join(base_path, 'step1_daily.py')])
             return_code = run_command_with_output(task_id,
-                [sys.executable, os.path.join(base_path, 'step1_daily.py')],
+                step1_cmd,
                 base_path,
                 "执行 step1_daily.py - 获取全市场日线行情"
             )
@@ -348,8 +355,10 @@ def run_selection(task_id, preliminary, detailed):
                 forced_asof = next(iter(temp_dates))
             selection_tasks[task_id].update(progress_base=15, progress_span=15)
             _set_step_progress(task_id, 16, '获取基础指标并合并')
+            step2_cmd = (_ap.python_script_argv('stocks_filter/step2_daily_basic.py')
+                         if _ap else [sys.executable, os.path.join(base_path, 'step2_daily_basic.py')])
             return_code = run_command_with_output(task_id,
-                [sys.executable, os.path.join(base_path, 'step2_daily_basic.py')],
+                step2_cmd,
                 base_path,
                 "执行 step2_daily_basic.py - 获取基础指标并合并"
             )
@@ -364,8 +373,10 @@ def run_selection(task_id, preliminary, detailed):
                 messages.append(f'基础指标未齐，整批初筛和回测统一回退 {forced_asof}')
                 for script, extra in [('step1_daily.py', ['--trade-date', forced_asof]),
                                       ('step2_daily_basic.py', [])]:
+                    rebuild_cmd = (_ap.python_script_argv(f'stocks_filter/{script}', *extra)
+                                   if _ap else [sys.executable, os.path.join(base_path, script)] + extra)
                     return_code = run_command_with_output(task_id,
-                        [sys.executable, os.path.join(base_path, script)] + extra,
+                        rebuild_cmd,
                         base_path, f'按 {forced_asof} 重建 {script}')
                     if return_code != 0:
                         break
@@ -375,8 +386,10 @@ def run_selection(task_id, preliminary, detailed):
             
             selection_tasks[task_id].update(progress_base=30, progress_span=10)
             _set_step_progress(task_id, 31, '条件筛选')
+            step3_cmd = (_ap.python_script_argv('stocks_filter/step3_filter.py')
+                         if _ap else [sys.executable, os.path.join(base_path, 'step3_filter.py')])
             return_code = run_command_with_output(task_id,
-                [sys.executable, os.path.join(base_path, 'step3_filter.py')],
+                step3_cmd,
                 base_path,
                 "执行 step3_filter.py - 执行初步筛选"
             )
@@ -388,11 +401,11 @@ def run_selection(task_id, preliminary, detailed):
             selection_tasks[task_id].update(progress_base=40 if preliminary else 0,
                                             progress_span=55 if preliminary else 95)
             _set_step_progress(task_id, 40 if preliminary else 1, '批量回测筛选（逐只处理）')
+            extra_bt = ['--skip-indicators'] + (['--asof', forced_asof] if forced_asof else [])
+            bt_cmd = (_ap.python_script_argv('stocks_filter/batch_backtest_filter.py', *extra_bt)
+                      if _ap else [sys.executable, os.path.join(base_path, 'batch_backtest_filter.py')] + extra_bt)
             return_code = run_command_with_output(task_id,
-                # --skip-indicators 只在来源/内容/版本全部校验通过时复用指标，
-                # 行情有更新会验证失败并自动重算，既省时间又不牺牲正确性。
-                [sys.executable, os.path.join(base_path, 'batch_backtest_filter.py'),
-                 '--skip-indicators'] + (['--asof', forced_asof] if forced_asof else []),
+                bt_cmd,
                 base_path,
                 "执行 batch_backtest_filter.py - 批量回测筛选"
             )

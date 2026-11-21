@@ -87,8 +87,12 @@ def get_quick_report(stock_code):
     快速分析只生成 K 线技术趋势报告，不生成策略/综合报告。
     """
     full_stock_code = stock_code + get_exchange_suffix(stock_code)
-    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    data_dir = os.path.join(project_root, 'data', full_stock_code)
+    try:
+        from config import DATA_DIR
+        data_dir = os.path.join(DATA_DIR, full_stock_code)
+    except Exception:
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        data_dir = os.path.join(project_root, 'data', full_stock_code)
 
     if not os.path.exists(data_dir):
         return jsonify({'success': False, 'message': '股票数据不存在'})

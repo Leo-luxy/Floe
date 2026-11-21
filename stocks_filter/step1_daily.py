@@ -112,8 +112,13 @@ except Exception as e:
     sys.exit(2)
 print(f"交易日：{trade_date}")
 
-# 当前文件位于 stocks_filter 文件夹中，直接使用当前目录
-SAVE_DIR = os.path.dirname(os.path.abspath(__file__))
+# 当前文件位于 stocks_filter 文件夹中；打包模式下自动重定向至用户可写目录
+try:
+    from app_paths import get_selection_dir as _get_selection_dir
+    SAVE_DIR = _get_selection_dir()
+except Exception:
+    SAVE_DIR = os.path.dirname(os.path.abspath(__file__))
+os.makedirs(SAVE_DIR, exist_ok=True)
 
 # 获取日线行情
 fields = ("ts_code,trade_date,open,high,low,close,pre_close,"

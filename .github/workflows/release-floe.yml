@@ -1,0 +1,120 @@
+name: Build & Release Floe Desktop
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-matrix:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            label: macos-arm64
+          - os: macos-13
+            label: macos-x64
+          - os: windows-latest
+            label: windows-x64
+          - os: ubuntu-22.04
+            label: linux-x64
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Linux WebView & AppImage system libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            python3-gi python3-gi-cairo gir1.2-gtk-3.0 gir1.2-webkit2-4.1 \
+            libfuse2 patchelf desktop-file-utils
+
+      - name: Install Python dependencies & PyInstaller
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install pywebview pyinstaller pystray
+
+      - name: Initialize clean config.py from template & offline vendor assets
+        run: |
+          python -c "import os, shutil; os.path.exists('config.py') or shutil.copyfile('config.example.py', 'config.py')"
+          python packaging/scripts/vendor_assets.py
+
+      - name: Build platform desktop packages
+        run: |
+          python packaging/scripts/build_desktop.py
+
+      - name: Build Linux AppImage (x86_64)
+        if: runner.os == 'Linux'
+        run: |
+          VER=$(python -c "import version; print(version.APP_VERSION)")
+          APPDIR="dist/Floe.AppDir"
+          mkdir -p "$APPDIR/usr/bin"
+          cp -r dist/Floe/* "$APPDIR/usr/bin/"
+          cp static/icons/floe_icon.png "$APPDIR/floe.png"
+          cat > "$APPDIR/AppRun" << 'EOF'
+          #!/bin/sh
+          SELF=$(readlink -f "$0")
+          HERE=${SELF%/*}
+          exec "$HERE/usr/bin/floe" "$@"
+          EOF
+          chmod +x "$APPDIR/AppRun"
+          cat > "$APPDIR/floe.desktop" << 'EOF'
+          [Desktop Entry]
+          Type=Application
+          Name=Floe
+          Comment=Quant Research Workbench
+          Exec=floe
+          Icon=floe
+          Categories=Office;Finance;
+          Terminal=false
+          EOF
+          curl -fsSL -o appimagetool "https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage"
+          chmod +x appimagetool
+          ARCH=x86_64 ./appimagetool "$APPDIR" "dist/release/Floe-v${VER}-linux-x86_64.AppImage"
+          sha256sum "dist/release/Floe-v${VER}-linux-x86_64.AppImage" | sed 's|dist/release/||' >> dist/release/SHA256SUMS-linux-x64.txt
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: floe-${{ matrix.label }}
+          path: dist/release/*
+
+  publish-release:
+    needs: build-matrix
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all platform artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release_inbox
+          merge-multiple: true
+
+      - name: Merge SHA256SUMS.txt
+        run: |
+          cd release_inbox
+          cat SHA256SUMS-*.txt > SHA256SUMS.txt
+          rm -f SHA256SUMS-*.txt
+          cat SHA256SUMS.txt
+
+      - name: Attach packages to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release_inbox/*
+          generate_release_notes: false

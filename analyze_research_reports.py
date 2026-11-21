@@ -1,4 +1,4 @@
-#!/opt/anaconda3/envs/PythonProject/bin/python
+#!/usr/bin/env python3
 # analyze_research_reports.py
 # 功能：分析company_info.json文件中的研究报告数据，发送给本地ollama进行分析，并保存结果
 # 实现原理：

@@ -25,8 +25,13 @@ INPUT_TEMP = "stocks_daily_temp.csv"            # step1 生成的临时文件
 OUTPUT_FINAL = "stocks_daily_full.csv"    # 最终输出文件
 # =============================================
 
-# 当前文件位于 stocks_filter 文件夹中，直接使用当前目录
-STOCKS_FILTER_DIR = os.path.dirname(os.path.abspath(__file__))
+# 当前文件位于 stocks_filter 文件夹中；打包模式下自动重定向至用户可写目录
+try:
+    from app_paths import get_selection_dir as _get_selection_dir
+    STOCKS_FILTER_DIR = _get_selection_dir()
+except Exception:
+    STOCKS_FILTER_DIR = os.path.dirname(os.path.abspath(__file__))
+os.makedirs(STOCKS_FILTER_DIR, exist_ok=True)
 
 from tushare_client import TusharePool, is_rate_limit  # noqa: E402
 

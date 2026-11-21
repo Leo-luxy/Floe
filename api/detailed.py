@@ -12,6 +12,25 @@ from .common import get_exchange_suffix
 # 创建蓝图
 detailed_bp = Blueprint('detailed', __name__)
 
+
+def _run_py_cmd(cmd: str):
+    """统一执行单步调试命令（兼容源码解释器与打包冻结态）。"""
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    try:
+        import app_paths as _ap
+        real_cmd = _ap.rewrite_shell_python_cmd(cmd)
+        env = _ap.subprocess_env()
+        run_cwd = _ap.get_user_data_dir() if _ap.is_packaged_mode() else project_root
+    except Exception:
+        real_cmd = (f'"{sys.executable}" ' + cmd[len('python '):]) if cmd.startswith('python ') else cmd
+        env = os.environ.copy()
+        run_cwd = project_root
+    return subprocess.run(
+        real_cmd, shell=True, capture_output=True,
+        text=True, encoding='utf-8', errors='replace',
+        cwd=run_cwd, env=env,
+    )
+
 @detailed_bp.route('/detailed_function', methods=['POST'])
 def detailed_function():
     """执行详细功能"""
@@ -43,12 +62,7 @@ def detailed_function():
                 # 依次执行命令
                 outputs = []
                 for cmd in commands:
-                    result = subprocess.run(
-                        cmd, 
-                        shell=True, 
-                        capture_output=True, 
-                        text=True
-                    )
+                    result = _run_py_cmd(cmd)
                     outputs.append(f"执行命令: {cmd}\n输出: {result.stdout}\n错误: {result.stderr}\n返回码: {result.returncode}")
                 return jsonify({
                     'success': True,
@@ -58,11 +72,15 @@ def detailed_function():
             else:
                 # 其他数据类型的抓取
                 if data_type == 'daily':
-                    # 抓取日更数据
-                    command = [
+                    commands = [
                         f'python check_data_updates.py --ticker {full_stock_code}',
-                        f'python calculate_technical_trend_ds.py --ticker {full_stock_code}'
+                        f'python calculate_technical_trend_ds.py --ticker {full_stock_code}',
                     ]
+                    outputs = []
+                    for cmd in commands:
+                        result = _run_py_cmd(cmd)
+                        outputs.append(f"执行命令: {cmd}\n输出: {result.stdout}\n错误: {result.stderr}\n返回码: {result.returncode}")
+                    return jsonify({'success': True, 'message': '日更数据抓取完成', 'output': '\n\n'.join(outputs)})
                 elif data_type == 'performance':
                     # 抓取业绩预告与分红数据
                     command = f'python important_missing_data_collector.py --ticker {full_stock_code}'
@@ -76,12 +94,7 @@ def detailed_function():
                     # 依次执行命令
                     outputs = []
                     for cmd in commands:
-                        result = subprocess.run(
-                            cmd, 
-                            shell=True, 
-                            capture_output=True, 
-                            text=True
-                        )
+                        result = _run_py_cmd(cmd)
                         outputs.append(f"执行命令: {cmd}\n输出: {result.stdout}\n错误: {result.stderr}\n返回码: {result.returncode}")
                     return jsonify({
                         'success': True,
@@ -101,12 +114,7 @@ def detailed_function():
                     # 依次执行命令
                     outputs = []
                     for cmd in commands:
-                        result = subprocess.run(
-                            cmd, 
-                            shell=True, 
-                            capture_output=True, 
-                            text=True
-                        )
+                        result = _run_py_cmd(cmd)
                         outputs.append(f"执行命令: {cmd}\n输出: {result.stdout}\n错误: {result.stderr}\n返回码: {result.returncode}")
                     return jsonify({
                         'success': True,
@@ -120,12 +128,7 @@ def detailed_function():
                     })
                 
                 # 执行命令
-                result = subprocess.run(
-                    command, 
-                    shell=True, 
-                    capture_output=True, 
-                    text=True
-                )
+                result = _run_py_cmd(command)
                 
                 if result.returncode == 0:
                     return jsonify({
@@ -164,12 +167,7 @@ def detailed_function():
                 })
             
             # 执行命令
-            result = subprocess.run(
-                command, 
-                shell=True, 
-                capture_output=True, 
-                text=True
-            )
+            result = _run_py_cmd(command)
             
             if result.returncode == 0:
                 return jsonify({
@@ -574,12 +572,7 @@ def execute_single_function():
             command = f'python {program} --ticker {full_stock_code}'
         
         # 执行命令
-        result = subprocess.run(
-            command, 
-            shell=True, 
-            capture_output=True, 
-            text=True
-        )
+        result = _run_py_cmd(command)
         
         if result.returncode == 0:
             return jsonify({

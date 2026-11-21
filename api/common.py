@@ -13,10 +13,12 @@ import queue
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(project_root)
 
-# ============================================================
-# 任务状态持久化（避免重启后任务丢失）
-# ============================================================
-TASK_STATUS_FILE = os.path.join(project_root, '.task_status_cache.json')
+try:
+    import app_paths as _ap
+    TASK_STATUS_FILE = _ap.get_task_cache_file()
+except Exception:
+    _ap = None
+    TASK_STATUS_FILE = os.path.join(project_root, '.task_status_cache.json')
 
 def _load_task_status():
     """从文件加载已保存的任务状态"""
@@ -126,14 +128,17 @@ def execute_step(step_name: str, command: str, cwd: str, messages: list, timeout
         messages.append(f'  跳过: {step_name}')
         return True, 'skipped'
 
-    # 步骤命令里写的是裸 python；Web 进程的 PATH 未必指向本项目环境，
-    # 这里统一换成当前解释器，避免子步骤用错 conda 环境而静默失败。
+    # 步骤命令里写的是裸 python；统一转换为当前解释器或冻结态子命令
     if command.startswith('python '):
-        command = f'"{sys.executable}" ' + command[len('python '):]
+        if _ap is not None:
+            command = _ap.rewrite_shell_python_cmd(command)
+        else:
+            command = f'"{sys.executable}" ' + command[len('python '):]
 
     try:
-        env = os.environ.copy()
+        env = _ap.subprocess_env() if _ap is not None else os.environ.copy()
         env.setdefault('PYTHONUNBUFFERED', '1')
+        run_cwd = (_ap.get_user_data_dir() if (_ap is not None and _ap.is_packaged_mode()) else cwd)
         process = subprocess.Popen(
             command,
             shell=True,
@@ -143,7 +148,7 @@ def execute_step(step_name: str, command: str, cwd: str, messages: list, timeout
             encoding='utf-8',
             errors='replace',
             bufsize=1,
-            cwd=cwd,
+            cwd=run_cwd,
             env=env,
             start_new_session=True,  # 独立进程组，超时可整组终止
         )

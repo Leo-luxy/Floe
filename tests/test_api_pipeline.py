@@ -388,10 +388,11 @@ class WebUIRunConfigTest(unittest.TestCase):
         import web_ui
         with mock.patch.dict(os.environ, {}, clear=False):
             os.environ.pop('GP_ANA_WEB_HOST', None)
+            os.environ.pop('GP_ANA_WEB_PORT', None)
             os.environ.pop('GP_ANA_WEB_DEBUG', None)
             host, port, debug = web_ui.get_run_config()
         self.assertEqual(host, '127.0.0.1')
-        self.assertEqual(port, 8081)
+        self.assertEqual(port, 3130)
         self.assertFalse(debug)
 
     def test_env_override(self):
@@ -407,6 +408,18 @@ class WebUIRunConfigTest(unittest.TestCase):
         with mock.patch.dict(os.environ, {'GP_ANA_WEB_DEBUG': 'false'}, clear=False):
             _, _, debug = web_ui.get_run_config()
         self.assertFalse(debug)
+
+    def test_pick_available_port_fallbacks_when_occupied(self):
+        import socket
+        import web_ui
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as blocker:
+            blocker.bind(('127.0.0.1', 0))
+            blocker.listen(1)
+            occupied_port = blocker.getsockname()[1]
+            self.assertFalse(web_ui.is_port_available('127.0.0.1', occupied_port))
+            chosen = web_ui.pick_available_port('127.0.0.1', occupied_port, max_tries=20)
+            self.assertNotEqual(chosen, occupied_port)
+            self.assertGreater(chosen, occupied_port)
 
 
 class BacktestTaskFailureTest(unittest.TestCase):

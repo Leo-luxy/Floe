@@ -242,8 +242,14 @@ def run_backtest_task(task_id, skip_data_update=False, use_simplified=False):
 
                 # 回测只依赖行情与技术指标：只更新这两项。
                 # 资金流/融资融券/估值只服务于完整分析报告，不在这里逐只抓取。
-                data_update_cmd = (f'{shlex.quote(sys.executable)} check_data_updates.py '
-                                   f'--mode price --ticker {shlex.quote(ticker)}')
+                try:
+                    from app_paths import rewrite_shell_python_cmd
+                    data_update_cmd = rewrite_shell_python_cmd(
+                        f'python check_data_updates.py --mode price --ticker {shlex.quote(ticker)}'
+                    )
+                except Exception:
+                    data_update_cmd = (f'{shlex.quote(sys.executable)} check_data_updates.py '
+                                       f'--mode price --ticker {shlex.quote(ticker)}')
                 returncode = _run_command_stream(
                     data_update_cmd, project_root, messages,
                     prefix=f'数据更新[{ticker}]: ', max_line_len=100, on_line=_on_data_line
@@ -281,7 +287,11 @@ def run_backtest_task(task_id, skip_data_update=False, use_simplified=False):
 
         # 使用统一回测模块，通过 --mode 控制策略
         mode_flag = '--mode simple' if use_simplified else '--mode full'
-        backtest_cmd = f'{shlex.quote(sys.executable)} backtest_all_stocks.py {mode_flag}'
+        try:
+            from app_paths import rewrite_shell_python_cmd
+            backtest_cmd = rewrite_shell_python_cmd(f'python backtest_all_stocks.py {mode_flag}')
+        except Exception:
+            backtest_cmd = f'{shlex.quote(sys.executable)} backtest_all_stocks.py {mode_flag}'
         progress = backtest_start_progress
 
         def _on_backtest_line(line):
@@ -566,5 +576,193 @@ def get_backtest_results():
                                       _requested_mode())
         df = pd.read_csv(path)
         return jsonify(success=True, data=df.to_dict('records'))
+    except Exception as exc:
+        return jsonify(success=False, message=str(exc))
+
+
+def _collect_local_selected_entries(selection_dir=None):
+    """汇总本设备历次选股结果中作为「当日可入场」（入场日期 == 数据截止日）出现过的股票及首次入选日。"""
+    import csv as _csv
+    import io as _io
+    import selection_result_store as store
+    from api import stock_selection as sel_api
+
+    base_dir = selection_dir or sel_api.SELECTION_DIR
+    output_csv = os.path.join(base_dir, 'final_holdings.csv')
+    first_seen = {}  # ticker -> {'first_date': 'YYYYMMDD', 'entry_price': float}
+
+    def _record_rows(rows, batch_asof):
+        asof8 = re.sub(r'\D', '', str(batch_asof or ''))[:8]
+        if len(asof8) != 8:
+            return
+        for row in rows or []:
+            ticker = str(row.get('股票代码') or '').strip().upper()
+            entry8 = re.sub(r'\D', '', str(row.get('入场日期') or ''))[:8]
+            if not re.fullmatch(r'\d{6}\.(SH|SZ)', ticker) or entry8 != asof8:
+                continue
+            try:
+                ep = float(row.get('入场价格') or 0)
+            except (TypeError, ValueError):
+                ep = 0.0
+            prev = first_seen.get(ticker)
+            if prev is None or asof8 < prev['first_date']:
+                first_seen[ticker] = {'first_date': asof8, 'entry_price': ep}
+
+    # 1. 遍历按日归档目录 selection_history/<YYYYMMDD>/
+    for item in store.history_index(output_csv):
+        dt = item.get('date')
+        if not dt:
+            continue
+        try:
+            payload, _st = store.read_history(output_csv, dt)
+            rows = list(_csv.DictReader(_io.StringIO(payload.decode('utf-8-sig'))))
+            _record_rows(rows, dt)
+        except Exception:
+            continue
+
+    # 2. 合并当前最新保存快照（防止刚跑完尚未扫描到的情形）
+    try:
+        cur = sel_api.read_final_holdings(base_dir)
+        if cur.get('success') and cur.get('data'):
+            _record_rows(cur['data'], cur.get('data_asof'))
+    except Exception:
+        pass
+
+    return first_seen
+
+
+def _simulate_from_first_selected(ticker, first_date8, mode, first_entry_price=0.0):
+    """从本设备首次入选「可入场」当天起计算该股在指定策略下的累计回测绩效。"""
+    import contextlib
+    import io as _io
+    import numpy as np
+    import trend_following_backtest as tfb
+
+    company_name = get_company_name(ticker)
+    if company_name == ticker:
+        try:
+            from api.watchlist import load_watchlist
+            for wl_code, wl_name in load_watchlist():
+                if wl_code == ticker and wl_name:
+                    company_name = wl_name
+                    break
+        except Exception:
+            pass
+
+    first_iso = f'{first_date8[:4]}-{first_date8[4:6]}-{first_date8[6:8]}'
+
+    with contextlib.redirect_stdout(_io.StringIO()):
+        strategy = tfb.TrendFollowingStrategy(ticker, mode=mode)
+        loaded = False
+        old_tfb_dir = tfb.DATA_DIR
+        try:
+            tfb.DATA_DIR = DATA_DIR
+            loaded = strategy.load_data()
+        finally:
+            tfb.DATA_DIR = old_tfb_dir
+
+        if not loaded:
+            qfq_path = os.path.join(DATA_DIR, ticker, f'{ticker}_qfq.csv')
+            if os.path.isfile(qfq_path):
+                try:
+                    from utils import calculate_technical_indicators
+                    raw_df = pd.read_csv(qfq_path)
+                    raw_df['date'] = pd.to_datetime(raw_df['date'])
+                    raw_df = raw_df.sort_values('date').reset_index(drop=True)
+                    ind_df = calculate_technical_indicators(raw_df)
+                    strategy.data = ind_df
+                    strategy._calculate_base_indicators()
+                    loaded = True
+                except Exception:
+                    loaded = False
+
+        if not loaded or strategy.data is None or strategy.data.empty:
+            return {
+                'ticker': ticker,
+                'company_name': company_name if company_name != ticker else '',
+                'first_selected_date': first_iso,
+                'first_entry_price': round(first_entry_price, 2) if first_entry_price else None,
+                'has_data': False,
+                'total_return': None,
+                'win_rate': None,
+                'total_trades': 0,
+                'avg_profit': None,
+                'holding': None,
+                'data_asof': '待拉取行情',
+            }
+
+        orig_gen = strategy._generate_signals
+
+        def _gen_since_selected():
+            orig_gen()
+            strategy.data.loc[strategy.data['date'] < pd.Timestamp(first_iso), 'trend_confirmed'] = 0
+
+        strategy._generate_signals = _gen_since_selected
+        trades = strategy.run_backtest(initial_capital=1000000.0, position_ratio=1.0) or []
+
+    data_asof = strategy.data['date'].iloc[-1].strftime('%Y-%m-%d')
+    if not trades:
+        return {
+            'ticker': ticker,
+            'company_name': company_name if company_name != ticker else '',
+            'first_selected_date': first_iso,
+            'first_entry_price': round(first_entry_price, 2) if first_entry_price else None,
+            'has_data': True,
+            'total_return': 0.0,
+            'win_rate': 0.0,
+            'total_trades': 0,
+            'avg_profit': 0.0,
+            'holding': False,
+            'data_asof': data_asof,
+        }
+
+    profits = [float(t['profit']) for t in trades]
+    compounded = 1.0
+    for p in profits:
+        compounded *= (1.0 + p / 100.0)
+    cum_return = (compounded - 1.0) * 100.0
+    wins = sum(1 for p in profits if p > 0)
+    win_rate = (wins / len(profits)) * 100.0
+    avg_profit = float(np.mean(profits))
+    is_holding = (trades[-1].get('type') == 'final_close')
+
+    return {
+        'ticker': ticker,
+        'company_name': company_name if company_name != ticker else '',
+        'first_selected_date': first_iso,
+        'first_entry_price': round(float(trades[0]['entry_price']), 2),
+        'has_data': True,
+        'total_return': round(cum_return, 2),
+        'win_rate': round(win_rate, 1),
+        'total_trades': len(trades),
+        'avg_profit': round(avg_profit, 2),
+        'holding': is_holding,
+        'data_asof': data_asof,
+    }
+
+
+@backtest_bp.route('/get_selected_performance')
+def get_selected_performance():
+    """仅返回本设备选股结果中曾作为「当日可入场」出现过的股票，自首次可入场日起算的累计回测绩效。"""
+    try:
+        mode = _requested_mode(default='simple')
+        selected_map = _collect_local_selected_entries()
+        if not selected_map:
+            return jsonify(
+                success=True,
+                mode=mode,
+                data=[],
+                empty_message='本设备历次选股记录中尚无「当日可入场」标的；待选股筛选出当日新入场股票后，将自动从首次入选日起统计其累计回测表现。'
+            )
+        rows = []
+        for ticker, meta in selected_map.items():
+            rows.append(_simulate_from_first_selected(
+                ticker=ticker,
+                first_date8=meta['first_date'],
+                mode=mode,
+                first_entry_price=meta.get('entry_price', 0.0),
+            ))
+        rows.sort(key=lambda r: (0 if r['has_data'] else 1, -(r['total_return'] if r['total_return'] is not None else -9999)))
+        return jsonify(success=True, mode=mode, data=rows)
     except Exception as exc:
         return jsonify(success=False, message=str(exc))

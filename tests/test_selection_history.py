@@ -101,6 +101,7 @@ class SelectionHistoryTest(unittest.TestCase):
         self.assertTrue(listed['success'])
         self.assertEqual(listed['dates'][0]['date'], '20261112')
         self.assertEqual(listed['dates'][0]['holdings'], 1)
+        self.assertEqual(listed['dates'][0]['new_entries'], 0)
         detail = self.client.get('/stock_selection/history/20261112').get_json()
         self.assertTrue(detail['success'])
         self.assertEqual(detail['data'][0]['股票代码'], '600000.SH')

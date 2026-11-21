@@ -1,6 +1,12 @@
 # config.example.py
 # 项目配置文件示例
-# 使用方法：复制此文件为 config.py，然后填入你的实际配置
+# 使用方法：首次启动时若缺少 config.py，系统会自动基于本模板创建；也可手动复制为 config.py
+
+try:
+    from app_paths import activate_runtime_paths as _activate_runtime_paths, get_data_dir as _get_data_dir
+    _activate_runtime_paths()
+except Exception:
+    _get_data_dir = None
 
 # 网络代理守护：本项目数据源均为国内站点，默认直连、不使用系统代理，
 # 避免系统代理设置残留导致抓取失败。详见 net_guard.py
@@ -21,15 +27,11 @@ STOCK_TICKERS = {
     # 'example3': '601318.SH',  # 中国平安
 }
 
-# 交易记录配置
-# 方式一：在此直接定义
-# TRADING_RECORDS = {
-#     '600519.SH': [
-#         {'date': '2026-01-01', 'type': 'buy', 'price': 100.00, 'shares': 100},
-#     ],
-# }
-# 方式二：在 trading_records.py 中定义，然后取消下面这行的注释：
-# from trading_records import TRADING_RECORDS
+# 交易记录配置（可在 Web 界面「买卖记录台账」中直接添加管理）
+try:
+    from trading_records import TRADING_RECORDS
+except Exception:
+    TRADING_RECORDS = {}
 
 # 历史数据日期配置
 HISTORY_DATE_RANGE = {
@@ -39,16 +41,26 @@ HISTORY_DATE_RANGE = {
     # },
 }
 
-# AI模型配置
+# AI模型配置（推荐在软件「系统设置」面板中可视化验证并保存 API Key 或本地 Ollama）
 AI_CONFIG = {
+    'provider': 'ollama',  # 'ollama' 或 'api'（可在设置页面切换为 DeepSeek 等云端 API）
     'base_url': 'http://localhost:11434',  # Ollama本地服务地址
     'model': 'qwen3.6:35b-a3b-coding-nvfp4',  # 本地模型（请根据实际模型修改）
+    'api_base': 'https://api.deepseek.com',  # 云端 API 默认推荐 DeepSeek
+    'api_key': '',
+    'api_model': 'deepseek-chat',
     'temperature': 0.3,  # 生成文本的随机性
     'max_tokens': 8192,  # 最大响应长度
     'trading_strategy': 'neutral',
     # 备用模型列表
     'fallback_models': ['qwen3.6:35b-a3b-coding-nvfp4', 'qwen3.5:397b-cloud'],
 }
+
+try:
+    from user_settings import apply_ai_settings as _apply_ai_settings
+    _apply_ai_settings(AI_CONFIG)
+except Exception:
+    pass
 
 # 交易策略提示词
 STRATEGY_PROMPTS = {
@@ -82,9 +94,9 @@ STRATEGY_PROMPTS = {
 
 # 数据目录配置
 import os
-# 获取项目根目录的绝对路径
+# 获取项目根目录的绝对路径（打包模式下 DATA_DIR 自动指向系统用户可写目录）
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
-DATA_DIR = os.path.join(PROJECT_ROOT, 'data')  # 数据保存目录
+DATA_DIR = _get_data_dir() if _get_data_dir else os.path.join(PROJECT_ROOT, 'data')  # 数据保存目录
 
 # 技术指标配置
 TECHNICAL_INDICATORS = {

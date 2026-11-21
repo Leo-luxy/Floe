@@ -22,8 +22,10 @@ test/
 # Logs
 log/
 
-# Sensitive (trading records contain portfolio info)
+# Sensitive (trading records and local UI credentials)
 trading_records.py
+user_settings.json
+CLAUDE.md
 
 # 敏感配置：含真实股票池与持仓日期，绝不能入库
 # ⚠️ 从 test 同步时务必确认此项存在，否则 config.py 会被带入公开仓库
@@ -46,4 +48,11 @@ stocks_filter/selection_history/
 
 # Temp
 *.tmp
+*.bak
 simplified_strategy_results.csv
+
+# 桌面软件打包构建产物（PyInstaller / DMG / AppImage）
+build/
+dist/
+*.dmg
+*.AppImage

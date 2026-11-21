@@ -1,7 +1,10 @@
 """成功结果单文件原子保存；失败任务不能覆盖历史展示。"""
+import csv
 import hashlib
+import io
 import json
 import os
+import re
 import uuid
 from datetime import datetime
 
@@ -99,6 +102,23 @@ def archive_daily(output_path, status):
     return target
 
 
+def _count_new_entries(csv_path, asof_date):
+    """统计留存 CSV 中入场日期等于当日截止日的新入场股票数量。"""
+    if not os.path.isfile(csv_path):
+        return None
+    try:
+        with open(csv_path, 'r', encoding='utf-8-sig') as fh:
+            reader = csv.DictReader(fh)
+            count = 0
+            for row in reader:
+                entry_digits = re.sub(r'\D', '', str(row.get('入场日期') or ''))[:8]
+                if entry_digits == asof_date:
+                    count += 1
+            return count
+    except (OSError, csv.Error):
+        return None
+
+
 def history_index(output_path):
     """返回可复盘的交易日列表（新的在前）。"""
     base = history_dir(output_path)
@@ -120,12 +140,15 @@ def history_index(output_path):
                 status = json.load(fh)
         except (OSError, ValueError):
             continue
+        csv_file = os.path.join(folder, 'final_holdings.csv')
+        has_csv = os.path.isfile(csv_file)
         items.append(dict(date=name, holdings=status.get('holdings'),
+                          new_entries=_count_new_entries(csv_file, name) if has_csv else None,
                           verified=status.get('verified', True),
                           processed=status.get('processed'),
                           state=status.get('state'), degraded=bool(status.get('degraded')),
                           finished_at=status.get('finished_at') or status.get('generated_at'),
-                          runs=runs, has_csv=os.path.isfile(os.path.join(folder, 'final_holdings.csv'))))
+                          runs=runs, has_csv=has_csv))
     return items
 
 

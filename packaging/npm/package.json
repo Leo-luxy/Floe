@@ -1,0 +1,40 @@
+{
+  "name": "@leo-luxy/floe",
+  "version": "2.0.0",
+  "description": "Floe — Cross-platform quantitative stock screener, trend backtester, and AI research workbench (macOS / Windows / Linux)",
+  "keywords": [
+    "quant",
+    "stock",
+    "backtest",
+    "a-share",
+    "ai-research",
+    "floe"
+  ],
+  "homepage": "https://github.com/Leo-luxy/Floe",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Leo-luxy/Floe.git"
+  },
+  "license": "MIT",
+  "author": "Leo-luxy",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "bin": {
+    "floe": "./bin/floe.js"
+  },
+  "files": [
+    "bin/",
+    "lib/",
+    "README.md"
+  ],
+  "os": [
+    "darwin",
+    "win32",
+    "linux"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ]
+}

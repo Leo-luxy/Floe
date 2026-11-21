@@ -31,6 +31,25 @@ except ImportError:
 SECTOR_DATA_DIR = os.path.join(DATA_DIR, 'sector')
 SECTOR_REPORT_DIR = os.path.join(SECTOR_DATA_DIR, 'reports')
 
+
+def _spawn_sector_cmd(cmd: str):
+    """统一启动板块子进程（兼容源码态解释器与 PyInstaller 冻结态）。"""
+    try:
+        import app_paths as _ap
+        real_cmd = _ap.rewrite_shell_python_cmd(cmd)
+        env = _ap.subprocess_env()
+        run_cwd = _ap.get_user_data_dir() if _ap.is_packaged_mode() else project_root
+    except Exception:
+        real_cmd = (f'"{sys.executable}" ' + cmd[len('python '):]) if cmd.startswith('python ') else cmd
+        env = os.environ.copy()
+        run_cwd = project_root
+    return subprocess.Popen(
+        real_cmd, shell=True,
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        text=True, encoding='utf-8', errors='replace', bufsize=1,
+        cwd=run_cwd, env=env,
+    )
+
 # 内存缓存：避免同一进程内反复请求 akshare
 _board_list_cache = {}
 
@@ -194,12 +213,7 @@ def run_sector_task(task_id, task_type, params):
             if collect_type == 'industry':
                 cmd += ' --top 30'
 
-            process = subprocess.Popen(
-                cmd, shell=True,
-                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                text=True, bufsize=1,
-                cwd=project_root,
-            )
+            process = _spawn_sector_cmd(cmd)
 
             progress = 10
             for line in iter(process.stdout.readline, ''):
@@ -253,12 +267,7 @@ def run_sector_task(task_id, task_type, params):
         if board_name:
             collect_cmd += f' --name "{board_name}"'
 
-        collect_process = subprocess.Popen(
-            collect_cmd, shell=True,
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            text=True, bufsize=1,
-            cwd=project_root,
-        )
+        collect_process = _spawn_sector_cmd(collect_cmd)
 
         collect_progress = 5
         for line in iter(collect_process.stdout.readline, ''):
@@ -298,12 +307,7 @@ def run_sector_task(task_id, task_type, params):
             }
 
             broad_collect_cmd = 'python sector_data_collector.py --type broad_index --code sh000001 --name "上证指数"'
-            broad_process = subprocess.Popen(
-                broad_collect_cmd, shell=True,
-                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                text=True, bufsize=1,
-                cwd=project_root,
-            )
+            broad_process = _spawn_sector_cmd(broad_collect_cmd)
             for line in iter(broad_process.stdout.readline, ''):
                 if line.strip():
                     messages.append(line.strip())
@@ -325,12 +329,7 @@ def run_sector_task(task_id, task_type, params):
             }
 
             broad_collect_cmd = 'python sector_data_collector.py --type broad_index'
-            broad_process = subprocess.Popen(
-                broad_collect_cmd, shell=True,
-                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                text=True, bufsize=1,
-                cwd=project_root,
-            )
+            broad_process = _spawn_sector_cmd(broad_collect_cmd)
             for line in iter(broad_process.stdout.readline, ''):
                 if line.strip():
                     messages.append(line.strip())
@@ -359,12 +358,7 @@ def run_sector_task(task_id, task_type, params):
         cmd_parts.append(f' --type {sector_type}')
         cmd = ' '.join(cmd_parts)
 
-        process = subprocess.Popen(
-            cmd, shell=True,
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            text=True, bufsize=1,
-            cwd=project_root,
-        )
+        process = _spawn_sector_cmd(cmd)
 
         report_path = None
         progress = 45

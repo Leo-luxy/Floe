@@ -67,10 +67,13 @@ _PROXY_ENV_KEYS = (
     'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'FTP_PROXY',
 )
 
+_ORIG_URLLIB_GETPROXIES = urllib.request.getproxies
+
+
 def _system_proxy_targets():
     """返回系统配置的代理 [(host, port), ...]（去重）"""
     try:
-        proxies = urllib.request.getproxies()
+        proxies = _ORIG_URLLIB_GETPROXIES()
     except Exception:
         return []
 
@@ -121,6 +124,36 @@ def force_direct():
         urllib.request.getproxies = lambda: {}
     except Exception:
         pass
+
+
+def restore_system_proxy():
+    """恢复使用操作系统配置的代理（供设置面板热切换至代理模式时调用）。"""
+    if os.environ.get('no_proxy') == '*':
+        os.environ.pop('no_proxy', None)
+    if os.environ.get('NO_PROXY') == '*':
+        os.environ.pop('NO_PROXY', None)
+    try:
+        urllib.request.getproxies = _ORIG_URLLIB_GETPROXIES
+        urllib.request.install_opener(urllib.request.build_opener())
+    except Exception:
+        pass
+    try:
+        import requests.utils as requests_utils
+        requests_utils.getproxies = _ORIG_URLLIB_GETPROXIES
+    except Exception:
+        pass
+
+
+def reconfigure_network_mode(mode='direct', verbose=False):
+    """在运行期动态切换 'direct'（国内直连）或 'proxy'（跟随系统代理）。"""
+    clean = str(mode or 'direct').strip().lower()
+    if clean == 'proxy':
+        os.environ['GP_ANA_NET_MODE'] = 'proxy'
+        restore_system_proxy()
+    else:
+        os.environ['GP_ANA_NET_MODE'] = 'direct'
+    _STATE['checked'] = False
+    return ensure_network_ready(verbose=verbose)
 
 
 def is_proxy_error(exc):

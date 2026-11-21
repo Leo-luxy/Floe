@@ -13,7 +13,11 @@ report_viewer_bp = Blueprint('report_viewer', __name__)
 @report_viewer_bp.route('/stocks')
 def get_stocks():
     """获取股票列表"""
-    data_dir = 'data'
+    try:
+        from config import DATA_DIR
+        data_dir = DATA_DIR
+    except Exception:
+        data_dir = 'data'
     stocks = []
     
     if os.path.exists(data_dir):
@@ -52,7 +56,11 @@ def get_stocks():
 @report_viewer_bp.route('/stock_reports/<stock_code>')
 def get_stock_reports(stock_code):
     """获取股票的报告列表，只显示每种类型的最新报告"""
-    data_dir = os.path.join('data', stock_code)
+    try:
+        from config import DATA_DIR
+        data_dir = os.path.join(DATA_DIR, stock_code)
+    except Exception:
+        data_dir = os.path.join('data', stock_code)
     
     if not os.path.exists(data_dir):
         return jsonify({

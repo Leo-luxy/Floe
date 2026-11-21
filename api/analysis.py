@@ -58,7 +58,7 @@ def get_task_status(task_id):
 @analysis_bp.route('/reports/<stock_code>')
 def get_reports(stock_code):
     full_stock_code = stock_code + get_exchange_suffix(stock_code)
-    data_dir = os.path.join('data', full_stock_code)
+    data_dir = os.path.join(DATA_ROOT, full_stock_code)
 
     if not os.path.exists(data_dir):
         return jsonify({'success': False, 'message': '股票数据不存在'})
@@ -79,7 +79,10 @@ def get_reports(stock_code):
 
 
 # 报告读取的安全边界：只允许 data/ 目录内、且扩展名在白名单内的文件
-DATA_ROOT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data')
+try:
+    from config import DATA_DIR as DATA_ROOT
+except Exception:
+    DATA_ROOT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data')
 ALLOWED_REPORT_EXTENSIONS = ('.md', '.json', '.csv', '.txt')
 
 
@@ -131,7 +134,7 @@ def get_report_content(report_path):
 def get_latest_report(stock_code):
     """获取最新分析报告"""
     full_stock_code = stock_code + get_exchange_suffix(stock_code)
-    data_dir = os.path.join('data', full_stock_code)
+    data_dir = os.path.join(DATA_ROOT, full_stock_code)
 
     if not os.path.exists(data_dir):
         return jsonify({'success': False, 'message': '股票数据不存在'})

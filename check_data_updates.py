@@ -178,7 +178,11 @@ def run_command(cmd, cwd=None):
     注意：退出码 0 也不代表数据已更新，调用方还必须复核内容日期。
     """
     if cmd.startswith('python '):
-        cmd = f'"{sys.executable}" ' + cmd[len('python '):]
+        try:
+            from app_paths import rewrite_shell_python_cmd
+            cmd = rewrite_shell_python_cmd(cmd)
+        except Exception:
+            cmd = f'"{sys.executable}" ' + cmd[len('python '):]
     print(f"执行命令: {cmd}")
     try:
         result = subprocess.run(cmd, shell=True, capture_output=True, text=True, cwd=cwd)

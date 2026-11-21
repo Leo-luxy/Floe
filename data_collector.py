@@ -512,7 +512,7 @@ EXIT_REBUILD_INVALID = 4
 QFQ_REQUIRED_COLUMNS = ("date", "open", "high", "low", "close", "volume", "amount")
 QFQ_NUMERIC_COLUMNS = ("open", "high", "low", "close", "volume", "amount")
 
-# 旧文件备份目录：GP_ANA_test/backup/qfq/（backup/ 已在 .gitignore 中）
+# 旧文件备份目录：backup/qfq/（backup/ 已在 .gitignore 中）
 BACKUP_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "backup", "qfq")
 
 
