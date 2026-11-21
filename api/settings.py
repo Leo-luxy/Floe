@@ -336,13 +336,15 @@ def run_system_diagnostics():
         os.remove(probe_file)
         usage = shutil.disk_usage(user_dir)
         free_gb = round(usage.free / (1024 ** 3), 1)
+        fb_note_zh = '（已自动启用便携目录模式）' if app_paths.is_using_fallback_data_dir() else ''
+        fb_note_en = ' (portable directory fallback active)' if app_paths.is_using_fallback_data_dir() else ''
         checks.append({
             'id': 'storage',
             'ok': True,
             'title_zh': '本地数据目录读写权限',
             'title_en': 'Local Data Directory Read/Write',
-            'detail_zh': f'读写正常 · 可用磁盘空间 {free_gb} GB ({user_dir})',
-            'detail_en': f'Read/write granted · {free_gb} GB free ({user_dir})',
+            'detail_zh': f'读写正常{fb_note_zh} · 可用磁盘空间 {free_gb} GB ({user_dir})',
+            'detail_en': f'Read/write granted{fb_note_en} · {free_gb} GB free ({user_dir})',
         })
     except Exception as exc:
         checks.append({
@@ -444,7 +446,7 @@ def export_user_backup():
     """导出用户核心配置与资产台账备份包 (.zip)：包含关注池、买卖台账与 API 设置。"""
     buf = io.BytesIO()
     candidates = [
-        ('user_settings.json', us.SETTINGS_FILE),
+        ('user_settings.json', us.resolve_settings_file()),
         ('watchlist.py', app_paths.get_watchlist_file()),
         ('trading_records.py', app_paths.get_trading_records_file()),
     ]

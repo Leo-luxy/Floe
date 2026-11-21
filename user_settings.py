@@ -19,7 +19,9 @@ try:
     from app_paths import get_settings_file as _get_settings_file
     SETTINGS_FILE = _get_settings_file()
 except Exception:
+    _get_settings_file = None
     SETTINGS_FILE = os.path.join(PROJECT_ROOT, 'user_settings.json')
+_INITIAL_SETTINGS_FILE = SETTINGS_FILE
 
 DEFAULT_API_BASE = 'https://api.deepseek.com'
 DEFAULT_API_MODEL = 'deepseek-chat'
@@ -28,6 +30,17 @@ TUSHARE_TOKEN_URL = 'https://tushare.pro/user/token'
 PLACEHOLDER_TOKEN = 'YOUR_TUSHARE_TOKEN'
 
 _ORIGINAL_OLLAMA_CLIENT = None
+
+
+def resolve_settings_file(path=None):
+    """动态解析当前生效的 user_settings.json 路径（兼容单测打桩 SETTINGS_FILE 与运行时目录回退）。"""
+    if path:
+        return path
+    if SETTINGS_FILE != _INITIAL_SETTINGS_FILE:
+        return SETTINGS_FILE
+    if _get_settings_file is not None:
+        return _get_settings_file()
+    return SETTINGS_FILE
 
 
 class _AttrDict(dict):
@@ -51,7 +64,7 @@ def mask_secret(secret):
 
 def load_user_settings(path=None):
     """读取本地 user_settings.json，不存在或格式损坏时返回空字典。"""
-    target = path or SETTINGS_FILE
+    target = resolve_settings_file(path)
     if not os.path.isfile(target):
         return {}
     try:
@@ -64,7 +77,7 @@ def load_user_settings(path=None):
 
 def save_user_settings(data, path=None):
     """原子写入 user_settings.json。"""
-    target = path or SETTINGS_FILE
+    target = resolve_settings_file(path)
     os.makedirs(os.path.dirname(os.path.abspath(target)), exist_ok=True)
     tmp = f'{target}.{uuid.uuid4().hex}.tmp'
     try:

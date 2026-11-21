@@ -190,6 +190,100 @@ class FloeDesktopAndSettingsTest(unittest.TestCase):
                 ).get_json()
                 self.assertFalse(imp_evil['success'])
 
+    def test_windows_appdata_permission_denied_falls_back_to_portable_dir(self):
+        """复现 Windows 受控文件夹访问 / 安全管家拦截 AppData 与 Temp ([WinError 5] 拒绝访问) 时的自动便携回退。"""
+        import app_paths
+        import user_settings as us
+
+        orig_tempdir = tempfile.tempdir
+        orig_sys_path = list(sys.path)
+        orig_sf = us.SETTINGS_FILE
+        orig_init_sf = us._INITIAL_SETTINGS_FILE
+        try:
+            with tempfile.TemporaryDirectory() as sandbox:
+                # 模拟中文路径下的 D 盘绿色解压目录与受拦截的 C:\Users\user\AppData
+                fake_c_appdata = os.path.join(sandbox, 'C_Users_user_AppData_Roaming')
+                fake_c_local = os.path.join(sandbox, 'C_Users_user_AppData_Local')
+                fake_c_temp = os.path.join(fake_c_local, 'Temp')
+                portable_app_dir = os.path.join(sandbox, '量化工具', '桌面版', 'Floe', 'Floe')
+                os.makedirs(portable_app_dir, exist_ok=True)
+                fake_exe = os.path.join(portable_app_dir, 'Floe.exe')
+
+                # 预建 Roaming\Floe 空目录，验证即使目录本身已存在但内部拒写也能被探针识破并回退
+                os.makedirs(os.path.join(fake_c_appdata, 'Floe'), exist_ok=True)
+
+                real_makedirs = os.makedirs
+                real_open = open
+
+                def _guarded_makedirs(path, *args, **kwargs):
+                    abs_p = os.path.abspath(str(path))
+                    if abs_p.startswith(os.path.abspath(fake_c_appdata)) or abs_p.startswith(os.path.abspath(fake_c_local)):
+                        raise PermissionError(13, '[WinError 5] 拒绝访问。', abs_p)
+                    return real_makedirs(path, *args, **kwargs)
+
+                def _guarded_open(file, mode='r', *args, **kwargs):
+                    abs_f = os.path.abspath(str(file))
+                    if ('w' in mode or 'a' in mode or '+' in mode) and (
+                        abs_f.startswith(os.path.abspath(fake_c_appdata))
+                        or abs_f.startswith(os.path.abspath(fake_c_local))
+                    ):
+                        raise PermissionError(13, '[WinError 5] 拒绝访问。', abs_f)
+                    return real_open(file, mode, *args, **kwargs)
+
+                env_overrides = {
+                    'FLOE_PACKAGED': '1',
+                    'FLOE_USER_DATA_DIR': '',
+                    'APPDATA': fake_c_appdata,
+                    'LOCALAPPDATA': fake_c_local,
+                    'TEMP': fake_c_temp,
+                    'TMP': fake_c_temp,
+                    'TMPDIR': fake_c_temp,
+                    'WEBVIEW2_USER_DATA_FOLDER': '',
+                    'MPLCONFIGDIR': '',
+                }
+
+                app_paths.reset_path_cache()
+                with mock.patch.dict(os.environ, env_overrides, clear=False), \
+                     mock.patch.object(os, 'name', 'nt'), \
+                     mock.patch.object(sys, 'platform', 'win32'), \
+                     mock.patch.object(sys, 'frozen', True, create=True), \
+                     mock.patch.object(sys, 'executable', fake_exe), \
+                     mock.patch('os.makedirs', side_effect=_guarded_makedirs), \
+                     mock.patch('builtins.open', side_effect=_guarded_open):
+
+                    resolved = app_paths.activate_runtime_paths()
+                    expected_portable = os.path.join(portable_app_dir, 'Floe_Data')
+                    self.assertEqual(os.path.abspath(resolved), os.path.abspath(expected_portable))
+                    self.assertTrue(app_paths.is_using_fallback_data_dir())
+
+                    # 验证子目录、基础配置及运行时缓存目录全部落在可写的便携目录内
+                    for sub in ('data', 'stocks_filter', 'backup', 'log', 'tmp'):
+                        self.assertTrue(os.path.isdir(os.path.join(expected_portable, sub)), sub)
+                    self.assertTrue(os.path.isfile(os.path.join(expected_portable, 'watchlist.py')))
+                    self.assertTrue(os.path.isfile(os.path.join(expected_portable, 'trading_records.py')))
+                    self.assertEqual(os.environ['TEMP'], os.path.join(expected_portable, 'tmp'))
+                    self.assertTrue(os.environ['WEBVIEW2_USER_DATA_FOLDER'].startswith(expected_portable))
+                    self.assertTrue(os.environ['MPLCONFIGDIR'].startswith(expected_portable))
+
+                    # 模拟用户在便携目录保存了设置；后续即使 AppData 恢复可写，也必须继续沿用便携目录不丢配置
+                    with real_open(os.path.join(expected_portable, 'user_settings.json'), 'w', encoding='utf-8') as fh:
+                        fh.write('{"ui": {"language": "zh-CN"}}')
+
+                app_paths.reset_path_cache()
+                with mock.patch.dict(os.environ, env_overrides, clear=False), \
+                     mock.patch.object(os, 'name', 'nt'), \
+                     mock.patch.object(sys, 'platform', 'win32'), \
+                     mock.patch.object(sys, 'frozen', True, create=True), \
+                     mock.patch.object(sys, 'executable', fake_exe):
+                    second_run = app_paths.get_user_data_dir()
+                    self.assertEqual(os.path.abspath(second_run), os.path.abspath(expected_portable))
+        finally:
+            tempfile.tempdir = orig_tempdir
+            sys.path[:] = orig_sys_path
+            us.SETTINGS_FILE = orig_sf
+            us._INITIAL_SETTINGS_FILE = orig_init_sf
+            app_paths.reset_path_cache()
+
 
 if __name__ == '__main__':
     unittest.main()

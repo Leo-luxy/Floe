@@ -51,7 +51,13 @@ def _dispatch_internal_script():
     """拦截 --run-script 子命令：在当前进程内直接执行指定业务脚本并以其退出码返回。"""
     if len(sys.argv) >= 3 and sys.argv[1] == '--run-script':
         import app_paths
-        app_paths.activate_runtime_paths()
+        user_dir = app_paths.activate_runtime_paths()
+        _ensure_valid_stdio()
+        if app_paths.is_packaged_mode():
+            try:
+                os.chdir(user_dir)
+            except OSError:
+                pass
         target_script = app_paths.resolve_script_path(sys.argv[2])
         if not os.path.isfile(target_script):
             sys.stderr.write(f'[Floe] Script not found: {target_script}\n')
@@ -322,17 +328,17 @@ def _install_cross_platform_tray(window_obj, server_url: str, bridge: FloeDeskto
 
 def _run_doctor() -> int:
     import app_paths
+    app_paths.activate_runtime_paths()
     import net_guard
     import tushare_client
     import user_settings as us
     import version
 
-    app_paths.activate_runtime_paths()
     print(f'{version.APP_NAME} v{version.APP_VERSION} Environment Doctor')
     print('-' * 56)
     print(f'Platform       : {sys.platform} ({os.name})')
     print(f'Python         : {sys.version.split()[0]} ({sys.executable})')
-    print(f'Packaged Mode  : {app_paths.is_packaged_mode()} (frozen={app_paths.is_frozen()})')
+    print(f'Packaged Mode  : {app_paths.is_packaged_mode()} (frozen={app_paths.is_frozen()}, fallback={app_paths.is_using_fallback_data_dir()})')
     print(f'Bundle Root    : {app_paths.get_bundle_dir()}')
     print(f'User Data Dir  : {app_paths.get_user_data_dir()}')
     net = net_guard.status()
@@ -351,6 +357,7 @@ def _run_doctor() -> int:
 def main():
     args = sys.argv[1:]
     if '--version' in args or '-v' in args:
+        _ensure_valid_stdio()
         import version
         print(f'{version.APP_NAME} v{version.APP_VERSION}')
         return 0
@@ -359,19 +366,23 @@ def main():
     if '--dev' not in args and 'FLOE_PACKAGED' not in os.environ:
         os.environ['FLOE_PACKAGED'] = '1'
 
+    for idx, arg in enumerate(args):
+        if arg == '--port' and idx + 1 < len(args):
+            os.environ['GP_ANA_WEB_PORT'] = args[idx + 1]
+
+    # 先完成可写用户目录解析与便携回退，再挂载 GUI 日志与工作目录，防止 AppData 受阻崩溃
+    import app_paths
+    user_dir = app_paths.activate_runtime_paths()
     _ensure_valid_stdio()
 
     if '--doctor' in args:
         return _run_doctor()
 
-    for idx, arg in enumerate(args):
-        if arg == '--port' and idx + 1 < len(args):
-            os.environ['GP_ANA_WEB_PORT'] = args[idx + 1]
-
-    import app_paths
-    user_dir = app_paths.activate_runtime_paths()
     if app_paths.is_packaged_mode():
-        os.chdir(user_dir)
+        try:
+            os.chdir(user_dir)
+        except OSError:
+            pass
 
     import user_settings as us
     import version
@@ -433,6 +444,17 @@ def main():
     start_kwargs = {'func': _on_gui_ready}
     if sys.platform.startswith('linux') and os.path.isfile(icon_png):
         start_kwargs['icon'] = icon_png
+    if app_paths.is_packaged_mode():
+        try:
+            import inspect
+            wv_params = inspect.signature(webview_mod.start).parameters
+            if 'storage_path' in wv_params and 'private_mode' in wv_params:
+                wv_storage = os.path.join(user_dir, '.cache', 'webview_storage')
+                os.makedirs(wv_storage, exist_ok=True)
+                start_kwargs['storage_path'] = wv_storage
+                start_kwargs['private_mode'] = False
+        except Exception:
+            pass
     webview_mod.start(**start_kwargs)
     return 0
 

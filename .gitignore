@@ -51,8 +51,10 @@ stocks_filter/selection_history/
 *.bak
 simplified_strategy_results.csv
 
-# 桌面软件打包构建产物（PyInstaller / DMG / AppImage）
+# 桌面软件打包构建产物（PyInstaller / DMG / AppImage / 便携数据目录）
 build/
 dist/
 *.dmg
 *.AppImage
+Floe_Data/
+floe_data/
