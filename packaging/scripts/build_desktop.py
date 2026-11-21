@@ -122,7 +122,7 @@ def build():
     with open(sums_path, 'w', encoding='utf-8') as fh:
         fh.write('\n'.join(lines) + '\n')
 
-    print(f'\n✅ Build finished! Artifacts saved in: {release_dir}')
+    print(f'\n[OK] Build finished! Artifacts saved in: {release_dir}')
 
 
 if __name__ == '__main__':
