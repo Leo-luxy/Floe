@@ -2,45 +2,36 @@
 
 ## Supported Versions
 
-This project is currently in active development. The following versions are supported with security updates:
+The following versions of **Floe** are actively supported with security updates:
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 1.0.0   | :white_check_mark: |
+| 2.0.x   | :white_check_mark: |
+| 1.6.x   | :white_check_mark: |
+| < 1.6   | :x:                |
 
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability in this project, please report it to us as soon as possible. We take security issues seriously and will respond promptly.
+If you discover a security vulnerability in **Floe**, please report it responsibly. We take security issues seriously and will respond promptly.
 
 ### How to Report
 
-To report a security vulnerability:
-
-1. **Do not** open a public issue on GitHub
-2. **Do not** disclose the vulnerability publicly
-3. Send an email to the maintainer at **luxy20061016@gmail.com** with details of the vulnerability
+1. **Do not** open a public issue on GitHub.
+2. **Do not** disclose the vulnerability publicly before a fix is released.
+3. Email the maintainer directly at **[luleo856@gmail.com](mailto:luleo856@gmail.com)** with details of the vulnerability.
 
 ### What to Include
 
-When reporting a security vulnerability, please include:
-
-- A detailed description of the vulnerability
-- Steps to reproduce the issue
-- Potential impact of the vulnerability
-- Any possible mitigations or fixes you've identified
+- A clear description of the vulnerability and affected module/endpoint
+- Steps or proof-of-concept to reproduce the issue
+- Potential security impact (e.g., path traversal, SSRF, credential exposure)
+- Suggested mitigations or patches, if any
 
 ### Response Process
 
-Upon receiving a security vulnerability report, we will:
+1. Acknowledge receipt of the report within **48 hours**
+2. Investigate and confirm severity and scope
+3. Develop, verify, and ship a patched release
+4. Credit the reporter (if desired) after the security update is published
 
-1. Acknowledge receipt of the report within 48 hours
-2. Investigate the issue and determine its severity
-3. Develop and test a fix
-4. Release a security update
-5. Publicly disclose the vulnerability after the fix is released
-
-### Security Updates
-
-Security updates will be released as patch versions. We recommend all users update to the latest version as soon as possible after a security update is released.
-
-Thank you for helping to keep GP_ANA secure!
+Thank you for helping keep **Floe** and its users safe!

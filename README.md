@@ -1,875 +1,410 @@
-# GP_ANA — A 股 AI 综合分析系统
+<p align="center">
+  <img src="static/icons/floe_icon_bull.png" alt="Floe Bull Icon" width="92">
+  &nbsp;&nbsp;&nbsp;
+  <img src="static/icons/floe_icon_bear.png" alt="Floe Bear Icon" width="92">
+</p>
 
-**当前版本：v1.6.0**
-
-**中文** ｜ [English](README_EN.md)
+<h1 align="center">Floe（原 GP_ANA）</h1>
 
 <p align="center">
+  <b>适合中国宝宝体质的 A 股选股与 AI 量化工作台</b><br>
+  <sub>当前版本：<b>v2.0.0</b> ｜ <b>中文</b> · <a href="README_EN.md">English</a></sub>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Version-v2.0.0-2563eb.svg" alt="Version">
+  <img src="https://img.shields.io/badge/Platform-macOS%20%7C%20Windows%20%7C%20Linux-0f172a.svg" alt="Platform">
+  <img src="https://img.shields.io/badge/Distribution-Desktop%20%7C%20Homebrew%20%7C%20npm%20%7C%20Source-059669.svg" alt="Distribution">
+  <img src="https://img.shields.io/badge/AI-DeepSeek%20%2F%20OpenAI%20API%20%7C%20Ollama-ea580c.svg" alt="AI">
   <img src="https://img.shields.io/badge/Python-3.9--3.12-blue.svg" alt="Python">
   <img src="https://img.shields.io/badge/License-MIT-green.svg" alt="License">
-  <img src="https://img.shields.io/badge/Platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey.svg" alt="Platform">
-  <img src="https://img.shields.io/badge/AI-Ollama%20%7C%20%E5%85%A8%E6%9C%AC%E5%9C%B0-orange.svg" alt="AI">
 </p>
 
 ---
 
 ## 📖 这是什么
 
-GP_ANA 是一套跑在你自己电脑上的 **A 股投资决策系统**。
+**Floe**（前身 **GP_ANA**）是一套运行在你自己电脑上的 **A 股趋势选股与多维 AI 投资决策软件**。
 
-它把散落在各处的股票信息——行情、财报、资金流、融资融券、股东结构、机构研报——自动抓下来，
-交给**本地大模型**做多维度研判，最终给出一个明确的、带持仓成本的交易计划。
+它把散落在各处的股票信息——全市场日线筛选、前复权行情、财报质量、主力资金流、融资融券、股东筹码、机构研报——自动拉取并做严格时效与指纹校验，再通过 **云端大模型 API（默认推荐 DeepSeek，兼容任意 OpenAI 接口）** 或 **本地 Ollama 模型** 进行五维交叉核验，结合你的真实持仓成本生成可执行的情景交易计划。
 
-**一句话概括：把你原本要翻十几个网站、看几十页财报才能拼出的判断，压缩成一份几分钟内可读的报告。**
+**一句话概括：用量化纪律管住手，把原本要翻十几个网页、看几十页财报才能拼出的判断，浓缩进一个干净顺手的桌面工作台。**
 
-> **第一次使用？** 直接跳到 [🚀 一步步部署](#-一步步部署从零到跑起来)，跟着做即可，全程约 20 分钟（不含 AI 模型下载）。
+> **🚀 想直接开箱即用？** 跳到 **[快速安装（桌面版 / Homebrew / npm）](#-快速安装与启动四种方式任选)**，下载安装包或一行命令即可启动，**无需折腾 Python 环境**。
 >
-> **想了解内部实现？** 见 **[Introduction.md](Introduction.md)** —— 架构、算法、数据结构与设计决策的技术详解。
+> **🛠️ 想从源码部署或二次开发？** 跳到 **[方式 D：从源码完整部署](#方式-d从源码完整部署适合二次开发与脚本定制)**，10 步手把手跑通。
+>
+> **📐 想了解内部架构与算法细节？** 阅读 **[Introduction.md](Introduction.md)** —— 五维权重、两层冲突推理、选股快照隔离、回测身份校验与完整 API 文档。
 
 ---
 
-## ✨ 项目特点
+## ✨ 核心特性（v2.0.0 全新升级）
 
-### 1️⃣ 五维决策 —— 不只看 K 线
+### 1️⃣ 三步主线量化闭环：选股 → 关注池 → 回测监控
 
-单靠开高低收做决策是脆弱的。GP_ANA 同时评估五个维度，每个维度都输出**结构化结论**（看多/看空/中性 + 信心度 + 异常项），而不是一堆原始数字：
+告别松散脚本堆砌，工作台围绕实盘每日复盘动线重构为清晰的三步流水线：
 
-| 维度 | 权重 | 它回答什么问题 |
+```
+01 市场选股                      02 关注股票池                      03 策略回测与监控
+──────────────────────          ──────────────────────            ──────────────────────
+Tushare 全市场 5000+ 扫描  ──▶   沉淀核心自选标的            ──▶    默认简化版 (MA5 > MA20)
+整批冻结唯一交易日快照             实时同步回测信号徽章                 对称入离场 + 3 日冷却期
+仅展示「当日新入场」标的           行内改名 · 一键跳图表/研判/记账       本机历次选股表现追踪
+```
+
+- **只看真信号**：`01 市场选股` 默认严格过滤 `入场日期 == 数据截止日` 的**当日新触发标的**，自动剔除早期入场的存量持仓副产物与北交所股票；每次成功批次自动归档至 `selection_history/<YYYYMMDD>/` 供随时复盘。
+- **贴合实战的默认策略**：`03 策略回测与监控` 默认启用胜率响应更敏捷的**简化版趋势策略（`MA5 > MA20`）**，保留完整版四线多头一键切换；新增**「本机历次选股表现追踪」**，自动统计你在这台电脑上筛出的每只新入场股票自首次入选日起的真实回测累计收益。
+
+### 2️⃣ 五维研判 + 两层 AI 冲突决策 —— 先“吵架”，再下单
+
+单看 K 线容易踩基本面暗雷，单看财报又容易买在下跌中继。Floe 同时评估五个维度，每个维度先产出标准化的结构化 JSON 摘要：
+
+| 维度 | 默认权重 | 核心回答的问题 |
 |:---|--:|:---|
-| 📈 **技术趋势** | **40%** | 现在是不是趋势？超买超卖了吗？关键价位在哪？ |
-| 💰 **财务质量** | 25% | 赚的是真钱吗？增长可持续吗？杠杆危险吗？ |
-| 🌡️ **情绪估值** | 15% | 主力在进还是在出？估值处于什么分位？ |
-| 🏢 **股东结构** | 10% | 股权集中还是分散？机构在增持还是撤退？ |
-| 📰 **研报观点** | 10% | 机构评级分布如何？目标价和盈利预测怎么变？ |
+| 📈 **技术趋势** | **40%** | 当前是否处于确认上升趋势？是否超买超卖？关键支撑/阻力位在哪？ |
+| 💰 **财务质量** | 25% | 利润含金量（经营现金流）如何？ROE 与增长可持续吗？负债率危险吗？ |
+| 🌡️ **情绪估值** | 15% | 主力资金在净流入还是撤退？PE/PB 处于历史什么分位？ |
+| 🏢 **股东结构** | 10% | 股东户数在集中还是发散？北向与长线机构在增持还是减仓？ |
+| 📰 **研报观点** | 10% | 近期机构评级分布如何？一致预期盈利是上修还是下调？ |
 
-### 2️⃣ 两层 AI 决策 —— 先"吵架"，再下单
-
-这是本系统与普通"报告生成器"最大的区别。
+在此之上采用独创的**「技术为主、其他避雷」+ 两层 LLM 推理机制**：
 
 ```
-第一层：冲突检测
-  把五个维度中【相互矛盾】的结论单独拎出来
-  角色设定：对冲基金风险经理
-  产出：这份矛盾背后的逻辑是什么？最该盯哪个指标？
-
-          ↓ 只把结论和你的真实持仓成本传下去
-
-第二层：交易计划
-  角色设定：交易教练
-  硬性约束：禁止给模糊建议
-  产出："如果股价 3 个交易日内站不稳 27.6 元，减仓至半仓" 这种可执行的情景计划
+第一层：多维冲突检测（角色：对冲基金风险经理）
+  专门把五个维度中【相互矛盾】的结论拎出来推理，拒绝和稀泥式的全文摘要
+          ↓ 仅向下传递核心冲突结论 + 你的真实 FIFO 持仓成本与浮盈亏
+第二层：情景交易计划（角色：交易教练）
+  硬性约束：禁止给模棱两可的套话，必须输出“如果……就……”的可执行风控价格树
 ```
 
-**为什么要这样设计？** 因为把几万字报告直接丢给 AI，它会退化成"摘要器"，遇到互相矛盾的观点就给出骑墙结论。
-把矛盾点单独挑出来让 AI 推理，再结合你的**真实盈亏状态**给建议，才是 LLM 的强项所在。
+### 3️⃣ 云端 DeepSeek / OpenAI API + 本地 Ollama 双模驱动
 
-### 3️⃣ 技术为主，其他避雷
+- **零显卡门槛（推荐）**：在「系统设置 → AI 与数据源」中填入 **DeepSeek**、硅基流动（SiliconFlow）、通义千问、Moonshot 或任意 OpenAI 兼容接口的 API Key，点击**「连接并拉取模型列表」**通过两步真实验证后即可保存，全项目 20+ 个分析脚本自动无缝接管，无需改动任何代码。
+- **全本地隐私模式**：同样支持一键切回本机 **Ollama**（`http://localhost:11434`），数据 100% 留在本机内存。
 
-其他四个维度**不主动产生买入信号**，只拥有一票否决权。同一套数据，三种用法：
+### 4️⃣ 三位小数（`0.001` 元）FIFO 实盘买卖台账
 
-| 模式 | 时间框架 | 技术面 | 财务 | 股东 | 情绪 |
-|:---|:---|--:|--:|--:|--:|
-| **短期交易** | < 1 个月 | **80%** | 0% | 0% | 20% |
-| **中期持仓** | 1–6 个月 | **60%** | 30% | 10% | 0% |
-| **长期投资** | > 6 个月 | 20% | **50%** | **30%** | 0% |
+- 完整支持 ETF、可转债及低价 A 股的**分厘级（三位小数，如 `15.825` 元）**成交价录入与展示。
+- 按 **FIFO（先进先出）** 逐手自动配对历史平仓手次与当前未平仓底仓，顶部实时汇总**账户累计总收益、已落袋实现盈亏、当前持仓浮动盈亏**，点击任意股票行即可展开查看每一手买卖明细，并自动将真实持仓均价注入第二层 AI 决策。
 
-避雷线随模式自动调整。例如资产负债率：短期容忍 80%，中期 70%，长期只有 60%。
+### 5️⃣ 原生跨平台桌面体验与贴心细节
 
-### 4️⃣ 全部本地推理，数据不出本机
+- **独立窗口 + 菜单栏常驻**：基于 `pywebview` 原生系统渲染引擎打包（无臃肿 Chromium 内核），macOS 配备黑白极简小企鹅菜单栏状态图标，Windows / Linux 配备系统托盘。
+- **红涨 / 绿跌双企鹅应用图标**：内置「📈 红涨昂首瞭望款」与「📉 绿跌委屈闭眼款」两套高清无边框圆角图标，可在设置中一键切换（同步更新左上角、网页 Favicon 及 macOS Dock 图标）。
+- **中英双语 + 浅色/深色主题**：支持 `简体中文 / English` 即时切换；切为英文后，后续新生成的 AI 个股与板块研报也会自动以专业英文输出。
+- **自动端口避让 + 离线静态资源 + 一键 ZIP 备份**：默认安全监听 `127.0.0.1:3130`（被占用时自动顺延至 `3131+`）；内置离线前端依赖包，无外网 CDN 阻塞；支持配置、自选股与台账一键导出/导入备份。
 
-- AI 推理跑在 **本机 Ollama**，**不需要任何云端 API key**（可以自行配置云端API）
-- 行情数据直接取自公开财经接口
-- 你的持仓成本、交易记录、分析结果**全部只存在本地**
+---
 
-> 这是刻意的设计：投资决策涉及个人财务状况，不应该上传到任何第三方 AI 服务。
+## 🖥️ 软件运行截图（v2.0.0 实机展示）
 
-### 5️⃣ 多数据源 + 自动容错
+> 以下截图均采自 **Floe v2.0.0** 隔离演示环境（公开蓝筹合成示例数据）。
 
-单一数据源出问题就抓瞎。GP_ANA 对关键数据做**多源冗余**：
+### 01 市场选股筛查台 & 02 关注股票池指挥台
+<p align="center">
+  <img src="assets/screenshots/01_market_screener.png" alt="01 市场选股筛查台" width="49%">
+  <img src="assets/screenshots/02_watchlist_pool.png" alt="02 关注股票池指挥台" width="49%">
+</p>
 
-- 行情同时走新浪财经和 akshare，主源失败自动切备用
-- 估值数据有双路回退
-- 每个采集步骤独立异常隔离——**某一步失败不会让整个流程崩掉**
-- 所有采集器**增量更新**，只拉新数据，不重复下载
+### 03 策略回测实时监控 & 个股五维两层 AI 研判中心
+<p align="center">
+  <img src="assets/screenshots/03_strategy_backtest.png" alt="03 策略回测与实时监控" width="49%">
+  <img src="assets/screenshots/04_ai_research_hub.png" alt="个股五维两层 AI 研判中心" width="49%">
+</p>
 
-### 6️⃣ 全市场选股流水线
+### 三位小数 FIFO 买卖记录台账 & 系统设置（双企鹅图标 · 语言 · 权限体检）
+<p align="center">
+  <img src="assets/screenshots/05_trading_ledger_fifo.png" alt="三位小数 FIFO 买卖记录台账" width="49%">
+  <img src="assets/screenshots/06_settings_and_icons.png" alt="系统设置与双图标切换" width="49%">
+</p>
 
-不想只盯着自选股？内置一条完整流水线：
+### 深色英文工作台（Dark + EN） & 趋势回测信号 K 线图
+<p align="center">
+  <img src="assets/screenshots/07_dark_en_workbench.png" alt="深色英文工作台模式" width="49%">
+  <img src="assets/screenshots/08_backtest_kline_chart.png" alt="趋势跟踪回测信号与资金曲线图" width="49%">
+</p>
 
-```
-Tushare 全市场日线  →  合并基础指标  →  多条件筛选  →  逐只趋势回测  →  最终持仓清单
-   （5500+ 只）        （市值/PE/PB）    （价格/成交额/      （真实历史回测）
-                                        换手率/振幅）
-```
+---
 
-### 7️⃣ 策略回测 + 实时监控
+## 🚀 快速安装与启动（四种方式任选）
 
-- 趋势跟踪策略完整回测，输出资金曲线、夏普比率、最大回撤
-- 入离场使用**对称双信号**：入场看趋势确认（多头结构+量能+ADX+MACD），离场看趋势结束（跌破 10 日低点或均线死叉+MACD 转负）
-- 离场后 **3 个交易日冷却期**，避免刚卖出又提示买入的自相矛盾
-- 保护性止损全保留：时间止损 / 峰值回撤 / ATR 止损 / 移动止盈 / 分仓止盈
+### 方式 A：直接下载桌面安装包（最省心 · 零环境依赖）
 
-### 8️⃣ 20+ 张专业图表自动生成
+前往 **[GitHub Releases](https://github.com/Leo-luxy/Floe/releases)** 下载对应系统的安装包，双击即可运行，**无需安装 Python 或 TA-Lib**：
 
-每只股票自动产出价格成交量、技术指标面板、布林带、相关性热力图、信号有效性分析、
-支撑阻力位、趋势通道、AI 价格预测、特征重要性等图表，既能在线看也能导出报告。
-
-### 对比一下
-
-| 特性 | 传统炒股软件 | **GP_ANA** |
+| 操作系统 | 安装包格式 | 安装与首次打开说明 |
 |:---|:---|:---|
-| 数据来源 | 单一平台 | 20+ 采集器，多源融合 + 自动容错 |
-| 分析维度 | 仅 K 线 | **五维**：财务 + 情绪估值 + 技术 + 股东 + 研报 |
-| AI 决策 | ❌ | ✅ **两层决策**：冲突检测 → 持仓交易计划 |
-| 策略验证 | 手动复盘 | 自动回测 + 实时监控 |
-| 市场选股 | 逐个翻找 | 全市场筛选 → 回测 → 最终持仓 |
-| 数据隐私 | 上传云端 | ✅ **全本地推理**，持仓不出本机 |
-| 成本 | 订阅费 | 免费开源 + 本地模型 |
+| **macOS**（Apple Silicon / Intel） | `Floe-v2.0.0-macos-*.dmg` | 打开 DMG 将 `Floe.app` 拖入「应用程序」。若首次打开提示“无法验证开发者”，在终端执行一次：<br>`xattr -cr /Applications/Floe.app` |
+| **Windows 10 / 11**（x64） | `Floe-v2.0.0-windows-x64.zip` | 解压后运行目录内的 `Floe.exe`（可右键发送到桌面快捷方式） |
+| **Linux**（Ubuntu 22.04+ 等 x64） | `Floe-v2.0.0-linux-x86_64.AppImage` | 赋予可执行权限后直接运行：<br>`chmod +x Floe-*.AppImage && ./Floe-*.AppImage` |
+
+> 💾 **升级不丢数据**：桌面打包版的个人配置、自选股、交易台账与行情缓存全部自动隔离存储在系统用户数据目录（macOS 为 `~/Library/Application Support/Floe`，Windows 为 `%APPDATA%\Floe`，Linux 为 `~/.local/share/floe`），覆盖升级安装包绝不丢失数据。
 
 ---
 
-## 🖥️ 界面预览
+### 方式 B：Homebrew 一行安装（macOS 推荐）
 
-### 完整分析 & 快速分析
-<p align="center">
-  <img src="assets/screenshots/完整分析.png" alt="完整分析" width="45%">
-  &nbsp;
-  <img src="assets/screenshots/快速分析.png" alt="快速分析" width="45%">
-</p>
+```bash
+brew tap Leo-luxy/tap
+brew install --cask floe
+```
 
-### 详细模式 & 单功能执行
-<p align="center">
-  <img src="assets/screenshots/详细模式.png" alt="详细模式" width="45%">
-  &nbsp;
-  <img src="assets/screenshots/单功能执行.png" alt="单功能执行" width="45%">
-</p>
-
-### 策略回测 & 市场选股
-<p align="center">
-  <img src="assets/screenshots/策略回测.png" alt="策略回测" width="45%">
-  &nbsp;
-  <img src="assets/screenshots/市场选股.png" alt="市场选股" width="45%">
-</p>
-
-### 板块分析 & 关注股票
-<p align="center">
-  <img src="assets/screenshots/板块分析.png" alt="板块分析" width="45%">
-  &nbsp;
-  <img src="assets/screenshots/关注股票.png" alt="关注股票" width="45%">
-</p>
-
-### 报告查看 & 买卖记录管理
-<p align="center">
-  <img src="assets/screenshots/报告查看.png" alt="报告查看" width="45%">
-  &nbsp;
-  <img src="assets/screenshots/买卖记录管理.png" alt="买卖记录管理" width="45%">
-</p>
+升级版本只需 `brew upgrade --cask floe`（若提示未公证拦截，可加 `--no-quarantine` 参数安装）。
 
 ---
 
-## 🚀 一步步部署（从零到跑起来）
+### 方式 C：npm 全局命令行安装（跨平台开发者推荐）
 
-> 全程约 20 分钟。每一步都给出了**具体命令**和**要改哪个文件的哪一行**。
+电脑装有 Node.js（`>= 18`）即可一键安装 `floe` 全局命令，自动拉取对应系统架构的预编译桌面运行时：
 
-### 第 0 步：先确认你的电脑满足条件
+```bash
+npm install -g @leo-luxy/floe
+
+# 启动原生桌面窗口
+floe
+
+# 或以纯本地浏览器模式启动（支持自定义端口）
+floe --web --port 3130
+
+# 运行环境与权限自检
+floe --doctor
+```
+
+---
+
+### 方式 D：从源码完整部署（适合二次开发与脚本定制）
+
+> 全程约 10–15 分钟，适合希望直接修改策略代码、调参或用命令行跑批处理的开发者。
+
+#### 第 0 步：确认系统与 Python 版本
 
 | 项目 | 要求 | 说明 |
 |:---|:---|:---|
-| **操作系统** | macOS / Linux / Windows | macOS 最省事 |
-| **Python** | **3.9 ~ 3.12**（推荐 3.10 / 3.11） | ⚠️ **3.13 不支持**，见下方说明 |
-| **内存** | ≥ 8 GB | 跑本地大模型建议 ≥ 32 GB |
-| **磁盘** | ≥ 5 GB | 不含 AI 模型；模型本身可能 20 GB+ |
-| **网络** | 能访问国内财经站点 | 数据源为东方财富/akshare/新浪/Tushare |
+| **操作系统** | macOS / Linux / Windows | 三端均完整支持 |
+| **Python** | **3.9 ~ 3.12**（推荐 **3.10 / 3.11**） | ⚠️ `numpy==1.26.3` 暂不提供 Python 3.13 预编译包 |
+| **内存** | ≥ 8 GB | 使用云端 DeepSeek API 仅需 8 GB；跑本地 32B 模型建议 ≥ 32 GB |
+| **网络** | 能直连国内财经站点 | 东方财富 / 新浪财经 / akshare / Tushare（内置直连守护自动绕过系统代理） |
 
-先查一下你的 Python 版本：
-
-```bash
-python3 --version
-```
-
-> ⚠️ **为什么不能用 Python 3.13？**
-> 依赖中锁定了 `numpy==1.26.3`，该版本只提供 Python 3.9 ~ 3.12 的预编译包。
-> 在 3.13 上会因找不到 wheel 而尝试源码编译，通常失败。
-> 若必须用 3.13，可把 `requirements.txt` 里的 `numpy==1.26.3` 改成 `numpy>=2.1`（未做完整验证）。
-
-版本不合适的话，用 conda 单独建一个环境：
+如果系统默认 Python 版本不合适，推荐用 Conda 或 `venv` 创建独立 Python 3.10 环境：
 
 ```bash
-conda create -n gpana python=3.10 -y
-conda activate gpana
+conda create -n floe python=3.10 -y
+conda activate floe
 ```
 
----
-
-### 第 1 步：下载代码
+#### 第 1 步：克隆仓库
 
 ```bash
-git clone https://github.com/Leo-luxy/GP_ANA.git
-cd GP_ANA
+git clone https://github.com/Leo-luxy/Floe.git
+cd Floe
 ```
 
-之后所有命令都在这个目录下执行。
+#### 第 2 步：安装 TA-Lib C 语言底层库（源码部署关键一步）
 
----
+`utils.py` 优先调用 `TA-Lib` 高速计算 40+ 项技术指标，**必须先装系统级 C 库，再装 Python 依赖**：
 
-### 第 2 步：创建虚拟环境
+- **macOS**：
+  ```bash
+  brew install ta-lib
+  ```
+- **Ubuntu / Debian**：
+  ```bash
+  sudo apt-get update && sudo apt-get install -y build-essential wget
+  wget https://github.com/ta-lib/ta-lib/releases/download/v0.6.4/ta-lib-0.6.4-src.tar.gz
+  tar -xzf ta-lib-0.6.4-src.tar.gz && cd ta-lib-0.6.4
+  ./configure --prefix=/usr && make && sudo make install && cd ..
+  ```
+- **Windows**：从 [cgohlke/talib-build Releases](https://github.com/cgohlke/talib-build/releases) 下载对应 Python 版本与位数的 `.whl` 安装：
+  ```bash
+  pip install TA_Lib-0.6.8-cp310-cp310-win_amd64.whl
+  ```
 
-避免污染系统 Python：
-
+验证安装成功：
 ```bash
-# 创建
-python3 -m venv venv
-
-# 激活 —— macOS / Linux
-source venv/bin/activate
-
-# 激活 —— Windows
-venv\Scripts\activate
+python -c "import talib; print(talib.__version__)"
 ```
 
-激活成功后命令行前面会出现 `(venv)`。
-
----
-
-### 第 3 步：安装 TA-Lib 系统库（最容易卡住的一步）
-
-本项目用 `TA-Lib` 计算 40+ 种技术指标。**它有一个 C 语言底层库，必须先装系统库再装 Python 包**，顺序反了必定失败。
-
-**macOS：**
-
-```bash
-brew install ta-lib
-```
-
-**Ubuntu / Debian：**（官方源没有现成包，需要源码编译）
-
-```bash
-sudo apt-get update
-sudo apt-get install -y build-essential wget
-wget https://github.com/ta-lib/ta-lib/releases/download/v0.6.4/ta-lib-0.6.4-src.tar.gz
-tar -xzf ta-lib-0.6.4-src.tar.gz
-cd ta-lib-0.6.4/
-./configure --prefix=/usr
-make
-sudo make install
-cd ..
-```
-
-**Windows：** 下载预编译包最省事（选与你 Python 版本、系统位数匹配的文件）：
-
-```
-https://github.com/cgohlke/talib-build/releases
-```
-
-```bash
-pip install TA_Lib-0.6.8-cp310-cp310-win_amd64.whl
-```
-
-**装完验证一下**（能打印版本号才算成功）：
-
-```bash
-python3 -c "import talib; print(talib.__version__)"
-```
-
-> 这一步不通过就不要往下走，否则后面所有技术分析功能都会崩。
-
----
-
-### 第 4 步：安装 Python 依赖
+#### 第 3 步：安装 Python 依赖
 
 ```bash
 pip install -r requirements.txt
 ```
 
-约需 3~10 分钟，**无需再手动补装任何东西**（`flask` 已包含在内）。
+> 如希望在源码环境下也使用独立原生窗口启动（`python floe_app.py`），可额外安装桌面壳可选依赖：`pip install pywebview pystray`。
 
-个别包失败可以单独重试，例如：
-
-```bash
-pip install akshare==1.18.39
-```
-
----
-
-### 第 5 步：安装并启动 Ollama（AI 功能必需）⭐
-
-所有 AI 分析、五维研判、两层决策都依赖本地大模型。
-
-**1）安装 Ollama** —— 访问 <https://ollama.com/download>，或 macOS 用 `brew install ollama`
-
-**2）启动服务**
+#### 第 4 步：启动 Floe 工作台
 
 ```bash
-ollama serve
-```
-
-服务监听 `http://localhost:11434`。**建议让它常驻**（macOS 可用 `brew services start ollama`）。
-
-**3）下载一个模型**
-
-> ⚠️ **注意**：`config.example.py` 里默认写的模型名是作者本机的自定义模型，**在 Ollama 公共仓库里不存在**，
-> 直接 `ollama pull` 会失败。请自己拉一个可用模型，然后把配置改成对应的名字（下一步会讲）。
-
-```bash
-# 按你的内存选一个（模型也可自行去ollama官网获得心仪的模型）
-ollama pull qwen3:8b          # 约 5 GB，8GB 内存可跑，速度快
-ollama pull qwen3:32b         # 约 20 GB，效果更好，建议 32GB+ 内存
-ollama pull deepseek-r1:32b   # 备选
-```
-
-**4）确认模型就绪**
-
-```bash
-ollama list
-```
-
-**记下你拉取的模型名字**，下一步要用。
-
----
-
-### 第 6 步：创建配置文件 `config.py` ⭐
-
-仓库里**没有** `config.py`（它含个人股票池，已被 `.gitignore` 排除），只提供了模板。
-**这一步要做的就是复制模板 + 改两处。**
-
-**复制模板：**
-
-```bash
-# macOS / Linux
-cp config.example.py config.py
-
-# Windows
-copy config.example.py config.py
-```
-
-**然后编辑 `config.py`，至少改这两处：**
-
-**① `STOCK_TICKERS` —— 填你要分析的股票**
-
-```python
-# config.py 第 9 行附近
-STOCK_TICKERS = {
-    'byd':    '002594.SZ',   # 键名随便起，值必须是「6位代码 + 交易所后缀」
-    'lanxi':  '300433.SZ',
-    # 可以继续加
-}
-```
-
-> **交易所后缀规则**：`6` 开头 → `.SH`（上交所）；`0` / `3` 开头 → `.SZ`（深交所）。
-
-**② `AI_CONFIG.model` —— 填你第 5 步实际拉取的模型名**
-
-```python
-# config.py 第 57 行附近
-AI_CONFIG = {
-    'base_url': 'http://localhost:11434',   # Ollama 地址，本机不用改
-    'model': 'qwen3:8b',                    # ← 改成你自己的模型名
-    'temperature': 0.3,
-    'max_tokens': 8192,
-    'trading_strategy': 'neutral',          # 见下方说明
-    'fallback_models': ['qwen3:8b'],        # ← 同上
-}
-```
-
-`trading_strategy` 可选四种，决定 AI 用什么视角看盘：
-
-| 取值 | 含义 |
-|:---|:---|
-| `neutral` | 中性客观（默认），综合多空信号给判断 |
-| `trend_following` | 趋势跟踪，只在有明显趋势时交易 |
-| `mean_reversion` | 均值回归，在极端位置反向交易 |
-| `swing` | 波段交易，持仓数天至数周 |
-
----
-
-### 第 7 步：创建持仓记录 `trading_records.py`（可选但强烈建议）（后续可在web_ui界面中添加）
-
-**为什么建议填：** 第二层 AI 决策会读取你的**真实持仓成本和盈亏**。
-不填也能用，但 AI 只能空谈基本面；填了它才会给出"你现在亏 27%，该止损还是补仓"这种针对性建议。
-
-**复制模板：**
-
-```bash
-# macOS / Linux
-cp trading_records.example.py trading_records.py
-
-# Windows
-copy trading_records.example.py trading_records.py
-```
-
-**然后编辑 `trading_records.py`，按格式填你的真实买卖记录：**
-
-```python
-# trading_records.py
-TRADING_RECORDS = {
-    '600519.SH': [
-        {'date': '2026-01-15', 'type': 'buy',  'price': 1500.00, 'shares': 100},
-        {'date': '2026-02-20', 'type': 'sell', 'price': 1580.00, 'shares': 50},
-    ],
-    '000858.SZ': [
-        {'date': '2026-03-01', 'type': 'buy',  'price': 130.00, 'shares': 500},
-    ],
-}
-```
-
-| 字段 | 说明 |
-|:---|:---|
-| `date` | 成交日期，格式 `YYYY-MM-DD` |
-| `type` | `buy` 买入 / `sell` 卖出 |
-| `price` | 成交价 |
-| `shares` | 成交股数 |
-
-> 也可以不建这个文件，直接在 `config.py` 里用 `TRADING_RECORDS = {...}` 定义，并把 `from trading_records import TRADING_RECORDS` 那行注释掉。
->
-> 💡 也可以在 Web 界面「买卖记录管理」里直接增删，无需手改文件。
-
----
-
-### 第 8 步：配置 Tushare Token（**仅"市场选股"功能需要**）⭐
-
-**这是本系统唯一需要申请的凭据。** 其余数据源（akshare、东方财富、新浪财经）都是免费公开接口，**无需任何密钥**；
-AI 走本地 Ollama，也**不需要**任何云端 API key。
-
-**如果你不用「市场选股」，直接跳过这一步。**
-
-**1）申请**：注册并登录 <https://tushare.pro/> → 「个人主页 → 接口 TOKEN」→ 复制你的 token
-
-**2）填进一个文件**：项目根目录的 `tushare_client.py`
-
-```python
-# tushare_client.py
-PRIMARY_TOKEN = "YOUR_TUSHARE_TOKEN"     # ← 替换成你的真实 token
-BACKUP_TOKENS = [
-    # 可选：填入其它账号的 token；主 token 命中"频率超限"时会自动切换
-]
-```
-
-> 💡 **为什么只有一个文件**：token 集中在 `tushare_client.py` 管理，选股脚本通过 `TusharePool`
-> 调用接口，不再各自写死 token。命中「频率超限」时会自动换下一个 token 重试同一请求；
-> 所有 token 都限流才回退。也可以用环境变量覆盖，完全不改文件：
->
-> ```bash
-> export GP_TUSHARE_TOKENS="主token,备用token"
-> ```
-
-**3）注意 Tushare 积分**：全市场日线接口（`pro.daily()`）需要 **120 积分以上**。
-新账号默认积分不够，会提示权限不足，需先在 Tushare 官网完成积分任务。
-
-> ⚠️ **安全提醒**：`tushare_client.py` **是被 git 跟踪的**。若你要把改动提交回公开仓库，
-> 请务必先把 token 改回 `YOUR_TUSHARE_TOKEN`，或改用 `GP_TUSHARE_TOKENS` 环境变量注入。
-> 详见 [安全注意事项](#-安全注意事项)。
-
----
-
-### 第 9 步：创建数据目录
-
-程序不会自动创建这两个目录，**必须手动建**：
-
-```bash
-mkdir -p data log
-```
-
-- `data/` —— 所有行情数据、分析报告、图表都存在这里
-- `log/` —— 运行日志
-
----
-
-### 第 10 步：启动 Web 界面
-
-```bash
+# 方式 1：启动 Web 服务（默认仅本机安全监听 http://127.0.0.1:3130）
 python web_ui.py
+
+# 方式 2：启动原生桌面窗口（需已装 pywebview，未装会自动在默认浏览器打开）
+python floe_app.py
 ```
 
-看到下面这行就说明成功了：
+启动时如果仓库内尚无 `config.py`、`data/`、`log/`，系统会**自动用 `config.example.py` 初始化并建好所需目录**；如果 `3130` 端口恰好被其它程序占用，会自动向后顺延到 `3131` 等空闲端口并在终端打印实际访问地址。
 
-```
- * Running on http://0.0.0.0:8081
-```
+打开浏览器访问：**`http://127.0.0.1:3130`**
 
-**打开浏览器访问：<http://localhost:8081>**
+#### 第 5 步：在界面「⚙️ 系统设置」完成一键配置（无需手改代码！）
 
-> ⚠️ 端口是 **8081**，且**当前版本硬编码在 `web_ui.py` 最后一行，不支持命令行改端口**。
-> 8081 被占用时请直接编辑那一行的 `port=8081`。
+首次打开界面会自动弹出引导，你也可以随时点击左下角 **「⚙️ 系统设置 → AI 与数据源」**：
+
+1. **配置 AI 大模型（二选一）**：
+   - **推荐 · 云端 API（DeepSeek / OpenAI 兼容）**：选择预设服务商（如 DeepSeek），粘贴你的 API Key → 点击 **「1. 连接并拉取模型列表」** → 在下拉框选择模型（如 `deepseek-chat`）→ 点击 **「2. 保存 AI 配置」**。
+   - **备选 · 本地 Ollama**：先在终端执行 `ollama serve` 与 `ollama pull qwen3:8b`，在设置中切到「本地 Ollama」检测连接并选择模型保存即可。
+2. **配置 Tushare Token（仅「01 市场选股」需要）**：
+   - 注册登录 [tushare.pro](https://tushare.pro/) 获取接口 Token（全市场日线 `pro.daily()` 需 **120 积分以上**）。
+   - 直接粘贴到设置页「Tushare Pro 数据源配置」点击「验证并保存 Token」（支持填写多个备用 Token，主 Token 限流时自动无缝切换；保存在本地忽略的 `user_settings.json` 中，绝不会污染 Git 仓库）。
 
 ---
 
-### 第 11 步：开始使用
+## 🧭 日常复盘与功能使用指南
 
-> 💡 **界面上的功能是相互独立的，没有先后顺序。**
-> 除了标注「⚠️ 首次需先…」的以外，打开就能用。下面按用途分组说明。
-
-#### 🔍 分析单只股票
-
-两个入口，用途不同：
-
-| 功能 | 用途 | 耗时 | 说明 |
+| 模块 | 核心用途 | 预计耗时 | 使用要点 |
 |:---|:---|:---|:---|
-| **完整分析** | 新股票首次评估 | 3-5 分钟 | 全量采集数据 → 五维研判 → 两层决策，产出完整交易计划 |
-| **快速分析** | 每日盘后复盘 | ~30 秒 | 自动更新 K 线后**只做技术面**，可选短期/中期/长期视角 |
-
-**操作**：点「完整分析」或「快速分析」→ 输入 6 位股票代码（如 `300433`）→ 开始。结果在「报告查看」里看。
-
-> 💡 **新股票建议先跑一次「完整分析」** —— 它会把该股票的全套数据建好；之后日常盯盘用「快速分析」就够了。
-
-#### 🏢 板块分析 ⚠️ 首次需先采集数据
-
-**首次使用必须先做这一步**，否则板块下拉列表是空的：
-
-点「板块分析」→ 找到「更新板块数据」→ 点一下 → 等它跑完（约 1-2 分钟）。
-
-之后就可以选择板块类型（大盘 / 行业 / 概念 / 港股）做 AI 深度分析了，约 2-3 分钟。
-
-#### 🎯 市场选股 —— 完全独立的功能
-
-**它和上面的个股分析没有任何关系**，是一条独立的全市场流水线：
-
-```
-全市场日线（5500+ 只）→ 合并基础指标 → 多条件筛选 → 逐只趋势回测 → 最终持仓清单
-```
-
-**前提**：已在第 8 步填好 Tushare token。
-
-**操作**：点「市场选股」→ 勾选筛选模式 → 运行，约 3-5 分钟。
-
-#### ⭐ 关注股票（可选增强）
-
-维护一份关注列表。**它对其他功能是可选的增强，不是必须的前置**：
-添加后，回测和分析会**优先从这里取股票**，省得每次手输代码。
-
-点「关注股票」增删即可，即时生效。
-
-#### 💰 买卖记录管理（建议填）
-
-录入你的真实买卖记录。**这一步会直接提升 AI 建议的质量**：第二层决策会读取你的持仓成本，
-给出针对**实际盈亏**的建议（"你已经亏 27%，该止损还是补仓"），而不是空谈基本面。
-
-点「买卖记录管理」→ 选日期 / 类型 / 价格 / 股数 → 添加（日期默认是当天）。
-
-#### 📊 策略回测
-
-**操作**：点「策略回测」→ 选模式（完整流程 / 快速回测）→ 决定是否用简化版策略 → 开始，约 1-2 分钟。
-
-跑完会显示**监控报告**和每只股票的回测图表（点击卡片查看）。
-
-#### 🗂 报告查看
-
-浏览所有已生成的分析报告，按股票分类。需要有报告才看得到内容。
-
-#### 🛠 详细模式 / 单功能执行
-
-| 功能 | 用途 |
-|:---|:---|
-| **详细模式** | 查看单只股票的各类原始数据与中间结果 |
-| **单功能执行** | 单独跑某一个脚本，排查问题时用 |
+| **01 · 市场选股** | 全市场 5000+ 股票趋势扫描 | 3–5 分钟 | 需配置 Tushare Token。18:00 前按上一交易日快照，18:00 后按当日；列表仅聚焦展示**当日新入场标的**，可一键加入关注池 |
+| **02 · 关注股票池** | 核心自选股信号总览与调度 | 即时 | 自动同步最新回测信号（`可入场` / `持有` / `观望`），点击名称旁的 `✎` 可直接改名，一键直达回测图、AI 研判或记账 |
+| **03 · 策略回测与监控** | 关注池趋势回测与纪律监控 | 1–2 分钟 | 默认启用**简化版（`MA5 > MA20`）**；支持查看实时监控报告、**本机历次选股表现追踪**及逐股 K 线买卖点图表（支持键盘 `←` `→` 翻图） |
+| **⚡ 个股 AI 研判** | 快速技术复盘 / 五维完整排雷 | ~30 秒 / 3–5 分钟 | 日常盯盘选「快速技术研判」（支持短/中/长周期视角）；重仓建仓前选「五维两层完整决策」做全量基本面排雷与持仓计划 |
+| **🌐 板块与指数 AI** | 大盘与申万/东财行业轮动研判 | 2–3 分钟 | 首次使用先点「⬇ 更新数据」（约 1 分钟），随后即可对大盘指数、行业板块、港股指数做超额收益与趋势研判 |
+| **📝 买卖记录台账** | 三位小数实盘记账与 FIFO 核算 | 即时 | 录入每笔实盘买入/卖出（精确到 `0.001` 元），自动计算已落袋收益与实时持仓浮盈，并为 AI 第二层决策提供真实成本 |
+| **📚 报告归档中心** | 历史 Markdown 研报检索阅读 | 即时 | 按股票分组归档历次五维决策、技术趋势、财务、估值、股东与研报分析报告 |
+| **⚙️ 系统设置** | AI / Token / 图标 / 语言 / 备份 | 即时 | 切换红涨/绿跌企鹅图标、中英双语、桌面通知权限与网络策略体检、一键导出/导入全量个人数据 `.zip` 备份 |
 
 ---
 
-**各功能耗时速查：**
-
-| 功能 | 耗时 |
-|:---|:---|
-| 完整分析 | 3-5 分钟 |
-| 快速分析 | ~30 秒 |
-| 板块分析 | 2-3 分钟（首次需额外 1-2 分钟采集） |
-| 市场选股 | 3-5 分钟 |
-| 策略回测 | 1-2 分钟 |
-| 关注股票 / 买卖记录 / 报告查看 | 即时 |
-
----
-
-### 第 12 步：命令行初始化数据（可选）
-
-不想先点界面、想直接用命令行把数据准备好：
+## 💻 命令行速查（供进阶与自动化定时任务使用）
 
 ```bash
-# 抓取并更新日更数据（行情 / 资金流 / 融资融券 / 估值 / 技术指标）
-python check_data_updates.py --mode daily --ticker 300433.SZ
+# 1. 启动服务与桌面端
+python web_ui.py                                              # 启动 Web 服务 (默认 127.0.0.1:3130，冲突自动顺延)
+GP_ANA_WEB_PORT=8090 python web_ui.py                         # 指定自定义端口启动
+python floe_app.py                                            # 启动原生桌面独立窗口
+python floe_app.py --doctor                                   # 命令行打印运行环境与目录诊断 JSON
 
-# 抓取低频数据（公司信息 / 财报 / 股东 / 北向资金）
-python check_data_updates.py --mode periodic --ticker 300433.SZ
+# 2. 单股 / 批量数据更新检查（严格核验内容日期与 SHA256 指纹）
+python check_data_updates.py --mode daily    --ticker 300750.SZ   # 日更数据（行情/资金流/两融/估值/指标）
+python check_data_updates.py --mode periodic --ticker 300750.SZ   # 低频数据（公司信息/财报/股东/北向）
 
-# 板块数据
-python sector_data_collector.py --type broad_index
-python sector_data_collector.py --type industry --top 30
+# 3. 批量多维分析
+python batch_analyze.py --mode daily    --ticker 300750.SZ        # 日更维度（6 步）
+python batch_analyze.py --mode periodic --ticker 300750.SZ        # 低频维度（3 步）
+python batch_analyze.py --mode all      --ticker 300750.SZ        # 完整全维度流程（14 步）
+
+# 4. 趋势跟踪回测与实时监控
+python backtest_all_stocks.py --mode simple                       # 关注池简化版策略回测 + 监控报告
+python backtest_all_stocks.py --mode full                         # 关注池完整版四线多头回测 + 监控报告
+
+# 5. 全市场四步选股流水线
+python stocks_filter/step1_daily.py                               # Step 1: 全市场日线
+python stocks_filter/step2_daily_basic.py                         # Step 2: 合并换手率/市值/PE/PB
+python stocks_filter/step3_filter.py                              # Step 3: 多条件初筛
+python stocks_filter/batch_backtest_filter.py                     # Step 4: 隔离快照批量回测精筛 → final_holdings.csv
+
+# 6. 运行全套回归单元测试（309 项）
+python -m unittest discover -s tests -t .
 ```
 
-不加 `--ticker` 则处理 `config.py` 里 `STOCK_TICKERS` 的全部股票。
-
 ---
 
-## 📁 哪个文件写什么（速查表）
+## 🔧 常见问题排查（FAQ）
 
-部署完成后你只需要关心这几个文件：
+<details>
+<summary><b>Q1: macOS 首次打开 Floe.app 提示“已损坏”或“无法验证开发者”怎么办？</b></summary>
 
-| 文件 | 从哪来 | 你要改什么 | 必须吗 |
-|:---|:---|:---|:---:|
-| **`config.py`** | 复制 `config.example.py` | ① `STOCK_TICKERS` 填股票代码<br>② `AI_CONFIG.model` 填模型名 | ✅ **必须** |
-| **`trading_records.py`** | 复制 `trading_records.example.py` | 按格式填真实买卖记录 | 建议 |
-| **`tushare_client.py`** | 仓库自带 | `PRIMARY_TOKEN`（可选 `BACKUP_TOKENS`） | 仅市场选股 |
-| **`watchlist.py`** | 仓库自带 | 关注股票列表（建议用 Web 界面改） | 否 |
-| `data/`、`log/` | 手动创建 | —— | ✅ **必须** |
-
-**其他可调参数**（都在 `config.py` 里，不改也能跑）：
-
-| 配置块 | 作用 |
-|:---|:---|
-| `HISTORY_DATE_RANGE` | 指定某只股票的历史数据区间（默认全量） |
-| `TECHNICAL_INDICATORS` | 技术指标周期（MA/RSI/MACD/KDJ 等） |
-| `STRATEGY_CONFIG` | 回测参数（初始资金、买卖阈值） |
-| `STRATEGY_PROMPTS` | 四种策略视角的提示词模板，可自行调优 |
-
-> 📌 **`config.py` 和 `trading_records.py` 含你的个人持仓信息，已在 `.gitignore` 中，不会被提交。**
-
----
-
-## 🔧 常见问题排查
-
-### Q1: `pip install TA-Lib` 报错，提示找不到 `ta_lib.h`
-
-**原因**：只装了 Python 包，没装底层 C 库。
-
-**解决**：回到 [第 3 步](#第-3-步安装-ta-lib-系统库最容易卡住的一步) 先装系统库，再 `pip install TA-Lib==0.6.8`。
-
----
-
-### Q2: 启动报 `ModuleNotFoundError: No module named 'flask'`
-
-**原因**：旧版本的 `requirements.txt` 漏列了 `flask`（**当前版本已修复**）。
-
-**解决**：
-
+这是因为开源免费分发包未购买 Apple 付费企业公证签名，macOS Gatekeeper 默认会拦截首次从浏览器下载的应用。只需打开「终端」执行一行命令移除隔离属性即可永久正常双击打开：
 ```bash
-pip install flask
+xattr -cr /Applications/Floe.app
 ```
+</details>
+
+<details>
+<summary><b>Q2: 默认端口 3130 如果在别的电脑上被占用了怎么办？</b></summary>
+
+**完全不用手动处理。** Floe 内置了双阶段套接字可用性探测（`pick_available_port`）：若 `3130` 已被其它软件监听或受权限限制，会自动向后顺延绑定 `3131`、`3132`……并在控制台打印真实 URL，桌面窗口也会自动打开实际绑定的端口。如需固定端口，可设置环境变量 `GP_ANA_WEB_PORT=端口号`。
+</details>
+
+<details>
+<summary><b>Q3: 为什么我配置了 AI API Key 却不能直接点“保存”？</b></summary>
+
+为了彻底杜绝因模型名拼写错误或余额不足导致跑了 5 分钟采集后在最后一步报错，Floe 采用**两步强制校验**：粘贴 API Key 后请先点 **「1. 连接并拉取模型列表」**，真实连通网关并从下拉框选中可用模型后，「2. 保存 AI 配置」按钮会自动解锁。
+</details>
+
+<details>
+<summary><b>Q4: 市场选股提示 Tushare 权限或积分不足？</b></summary>
+
+全市场日线接口 `pro.daily()` 要求 Tushare 账号达到 **120 积分以上**。请登录 [tushare.pro](https://tushare.pro/) 完善个人资料或完成积分任务后再试；若有多个账号，可在「系统设置」的备用 Token 栏每行填一个，触发限流时会自动无缝切换。
+</details>
+
+<details>
+<summary><b>Q5: 开着 VPN / 科学上网软件时抓取国内行情超时？</b></summary>
+
+Floe 内置了 `net_guard.py` 网络守护，默认对东方财富、新浪财经、Tushare 等国内数据源走**直连模式**（自动忽略进程级系统代理环境变量）。若使用了 TUN/全局网卡接管模式导致国内站点不通，建议将 `eastmoney.com`、`sina.com.cn`、`tushare.pro` 加入代理软件的直连白名单，或在「系统设置 → 语言·权限·更新」中切换网络连接策略。
+</details>
+
+<details>
+<summary><b>Q6: 源码安装 `pip install TA-Lib` 报错找不到 `ta_lib.h`？</b></summary>
+
+这是因为尚未安装底层 C 库。请先按上方 [第 2 步](#第-2-步安装-ta-lib-c-语言底层库源码部署关键一步) 安装对应系统的 `ta-lib` 系统库，再执行 `pip install TA-Lib==0.6.8`。
+</details>
 
 ---
 
-### Q3: 在 Python 3.13 上安装失败（numpy 编译报错）
+## 🔒 安全与隐私设计
 
-**原因**：`numpy==1.26.3` 不支持 Python 3.13。
-
-**解决**：改用 Python 3.9 ~ 3.12；或把依赖改成 `numpy>=2.1` 后重装（未做完整验证）。
-
----
-
-### Q4: 浏览器打不开 / 端口不通
-
-1. 端口是 **8081**，访问 <http://localhost:8081>
-2. 检查占用：`lsof -i :8081`（Windows 用 `netstat -ano | findstr :8081`）
-3. 改端口：编辑 `web_ui.py` 最后一行
-
----
-
-### Q5: AI 分析一直失败或超时
-
-1. Ollama 是否在跑：`ollama list`，报连接错误就先 `ollama serve`
-2. `config.py` 里的 `AI_CONFIG.model` 是否与你实际拉取的模型名**完全一致**（最常见原因）
-3. 模型太大导致太慢：换小模型，如 `qwen3:8b`
-4. 首次加载模型需要时间，耐心等一下
-
----
-
-### Q6: 板块分析页面的板块列表是空的
-
-**原因**：板块数据尚未采集，首次必须初始化。
-
-**解决**：界面点「板块分析 → 更新板块数据」，或命令行：
-
-```bash
-python sector_data_collector.py --type broad_index
-python sector_data_collector.py --type industry --top 30
-```
-
----
-
-### Q7: 市场选股提示 Tushare 权限不足
-
-**原因**：`pro.daily()` 需要 **120 积分以上**，新账号默认不够。
-
-**解决**：到 <https://tushare.pro/> 完成积分任务或升级；并确认 token 已填入**两个**文件。
-
----
-
-### Q8: 抓取数据报网络错误 / 超时
-
-1. 检查能否访问东方财富、新浪财经
-2. **关闭系统代理或 VPN**（代码已主动清理代理环境变量，但全局代理仍可能干扰）
-3. 升级 akshare：`pip install --upgrade akshare`
-4. 稍后重试——数据接口有频率限制
-
----
-
-### Q9: 找不到 `config.py`
-
-**原因**：出于隐私考虑，`config.py` 与 `trading_records.py` 不包含在仓库中。
-
-**解决**：见 [第 6 步](#第-6-步创建配置文件-configpy-) 与 [第 7 步](#第-7-步创建持仓记录-trading_recordspy可选但强烈建议后续可在web_ui界面中添加) 复制模板。
-
----
-
-## ⚠️ 安全注意事项
-
-### 🔴 部署前必读
-
-**1）`web_ui.py` 以 Flask debug 模式监听 `0.0.0.0`**
-
-当前版本使用 `app.run(host='0.0.0.0', port=8081, debug=True)`，这意味着：
-
-- `debug=True` 会启用 Werkzeug 调试器，出错页面提供**可执行任意代码**的交互式控制台
-- `host='0.0.0.0'` 表示监听**所有网卡**，同一局域网内其他设备可以访问
-
-**⚠️ 请勿在公网或不可信网络中运行。** 长期运行建议改成：
-
-```python
-# web_ui.py 最后一行
-app.run(host='127.0.0.1', port=8081, debug=False)   # 仅本机可访问，关闭调试器
-```
-
-**2）Tushare token 不要提交到公开仓库**
-
-`tushare_client.py` **是被 git 跟踪的文件**（token 已从各脚本集中到这里）。
-填入真实 token 后一旦 `git commit`，token 就永久留在了 commit 历史里。
-
-- 提交前务必改回 `"YOUR_TUSHARE_TOKEN"`，备用 token 列表清空
-- 更稳妥的做法是用环境变量覆盖，完全不改文件：
-
-```bash
-export GP_TUSHARE_TOKENS="主token,备用token"
-```
-
-- 若已误提交，请立即到 Tushare 官网**重置 token**
-
-**3）`config.py` 与 `trading_records.py` 含个人持仓隐私**
-
-这两个文件已在 `.gitignore` 中，**请勿取消忽略或手动提交**。
-
-**4）`data/` 目录含全部分析结果与持仓决策**
-
-同样已在 `.gitignore` 中。分享或打包本项目前建议清空：
-
-```bash
-rm -rf data/*      # ⚠️ 会删除所有已生成的分析报告与图表
-```
-
-### 🟢 良好的隐私设计
-
-值得肯定的是，本项目**所有 AI 推理都在本地 Ollama 完成**，行情数据直接取自公开财经接口，
-**不会把你的持仓或分析结果上传到任何第三方 AI 服务**。
-
-### 其他建议
-
-1. 不要在公共网络环境下暴露服务端口
-2. 定期更新依赖：`pip install -r requirements.txt --upgrade`
-3. 数据目录权限设为仅当前用户可读写：`chmod 700 data`
-
----
-
-## 💻 命令行速查
-
-```bash
-# 启动 Web 界面
-python web_ui.py
-
-# 数据更新
-python check_data_updates.py --mode daily    --ticker 300433.SZ   # 日更数据
-python check_data_updates.py --mode periodic --ticker 300433.SZ   # 低频数据
-
-# 批量分析
-python batch_analyze.py --mode daily    --ticker 300433.SZ   # 日更维度（6 步）
-python batch_analyze.py --mode periodic --ticker 300433.SZ   # 低频维度（3 步）
-python batch_analyze.py --mode all      --ticker 300433.SZ   # 完整流程（14 步）
-
-# 技术趋势分析（可切换策略视角）
-python analyze_technical_trend.py --strategy trend_following --ticker 300433.SZ
-python analyze_technical_trend.py --strategy swing           --ticker 300433.SZ
-
-# 板块分析
-python sector_data_collector.py --type broad_index            # 采集大盘指数
-python sector_data_collector.py --type industry --top 30      # 采集行业板块
-python analyze_sector.py --mode single --sector BK0477        # 单板块深度分析
-python analyze_sector.py --mode broad                         # 大盘全景分析
-
-# 市场选股（四步流水线，需先填 Tushare token）
-python stocks_filter/step1_daily.py           # 1. 全市场日线
-python stocks_filter/step2_daily_basic.py     # 2. 合并基础指标（建议等 step1 完成 1 小时）
-python stocks_filter/step3_filter.py          # 3. 多条件筛选
-python stocks_filter/batch_backtest_filter.py # 4. 批量回测 → final_holdings.csv
-```
-
-不加 `--ticker` 时，批量命令会处理 `config.py` 中 `STOCK_TICKERS` 的全部股票。
-
-> 更多模块与接口说明见 [Introduction.md](Introduction.md)。
+1. **默认仅本机回环监听，零局域网暴露**：`web_ui.py` 与桌面端默认绑定 `127.0.0.1:3130` 且强制 `debug=False`，不向局域网其他设备开放端口，也不暴露 Werkzeug 调试器。
+2. **敏感凭据与持仓本地隔离**：通过界面配置的 API Key、Tushare Token、自选股与实盘交易记录均保存在被 `.gitignore` 严格排除的本地文件（或系统级用户数据目录）中；备份恢复采用 AST 白名单字面量语法树解析，杜绝恶意代码注入。
+3. **最小系统权限原则**：Floe **不请求**摄像头、麦克风、通讯录、定位或辅助功能等任何隐私权限，仅需本地数据目录读写、出站行情网络请求及可选的任务完成桌面通知。
 
 ---
 
 ## 📮 反馈与联系
 
-使用过程中遇到问题、发现 bug，或者有功能建议，欢迎直接发邮件给我：
+使用过程中遇到问题、发现 Bug，或者有新策略与功能建议，欢迎随时联系作者：
 
-**📧 [luxy20061016@gmail.com](mailto:luxy20061016@gmail.com)**
+- **📧 作者邮箱**：**[luleo856@gmail.com](mailto:luleo856@gmail.com)**
+- **🐙 GitHub Issues**：**[https://github.com/Leo-luxy/Floe/issues](https://github.com/Leo-luxy/Floe/issues)**
 
-为了更快定位问题，来信时建议附上：
-
-- 操作系统与 Python 版本（例如 macOS 14 / Python 3.10.15）
-- 出问题的功能（选股 / 回测 / 个股分析 / 板块分析 …）以及页面提示的截图
-- 终端报错的最后 20 行（如果有）
-- `data/` 目录里对应生成的日志或状态文件名
-
-> 这是个人维护的开源项目，我会尽量回复；也可以直接在 GitHub 提 [Issue](https://github.com/Leo-luxy/GP_ANA/issues)。
+来信或提 Issue 时附上操作系统版本、功能模块截图及报错末尾日志（或运行 `floe --doctor` 的输出），能帮助更快定位问题。
 
 ---
+
 ## 📄 版本历史
 
 | 版本 | 日期 | 主要变更 |
-|------|------|---------|
-| **v1.6.0** | 2026-11 | 选股整批统一交易日与每日留存、回测产物身份校验（参数/来源/内容指纹）、失败可观测与降级闭环、Tushare 主备 token 自动切换、策略参数单一来源、296 项回归测试 |
-| **v1.5.0** | 2026-09 | 文档体系重构为 README + Introduction 两册、回测页默认显示最新报告、任务状态持久化、依赖清单修正、清理冗余脚本 |
-| **v1.4.0** | 2026-06 | 市场选股+自选股管理、KDJ/板块时效性修复、回测增强（关注列表+公司名）、超时控制 |
-| **v1.3.0** | 2026-06 | 板块分析：四大类型 AI 分析、新浪财经数据源、sector API |
-| **v1.2.0** | 2026-05 | 架构重构：统一入口、Process/引擎、两层决策、快速分析、回测系统 |
-| v1.1.0 | 2026-03 | 41 模块：Web 界面、12 个新采集器、5 个新分析引擎 |
-| v1.0.1 | 2026-02 | 18 模块：数据采集 + 基础分析 |
+|:---|:---|:---|
+| **v2.0.0** | 2026-11 | **品牌焕新为 Floe**；全新三步闭环量化工作台；跨平台独立桌面应用（macOS / Windows / Linux）与 Homebrew / npm 分发；DeepSeek / OpenAI 云端 API 两步校验接入 + Ollama 双引擎；三位小数（`0.001`）FIFO 买卖台账；本机历次选股表现追踪；红涨/绿跌双企鹅图标、中英双语界面与英文研报输出、自动端口顺延（`3130`）与一键 ZIP 备份；309 项回归测试 |
+| **v1.6.0** | 2026-11 | 选股整批统一交易日与每日留存、回测产物身份校验（参数/来源/内容指纹）、失败可观测与降级闭环、Tushare 主备 Token 自动切换、策略参数单一来源 |
+| **v1.5.0** | 2026-09 | 文档体系重构为 README + Introduction 两册、回测页默认显示最新报告、任务状态持久化、依赖清单修正 |
+| **v1.4.0** | 2026-06 | 市场选股 + 自选股管理、标准 9 日 EMA KDJ 与板块时效性修复、回测增强 |
+| **v1.3.0** | 2026-06 | 板块与指数 AI 分析：四大类型板块研判、新浪财经数据源、sector API |
+| **v1.2.0** | 2026-05 | 架构重构：统一批量入口、`Process/` 五维引擎、两层冲突决策、快速分析、趋势回测系统 |
+| **v1.1.0** | 2026-03 | Web 界面、12 个新采集器、5 个新分析引擎 |
+| **v1.0.1** | 2026-02 | 初版数据采集与基础分析框架 |
 
-详见 [CHANGELOG.md](CHANGELOG.md)
-
----
-
-## 👥 贡献者
-
-| 角色 | 成员 |
-|:---|:---|
-| 作者 / 维护者 | **[Leo-luxy](https://github.com/Leo-luxy)** — 需求设计、策略与工程实现、数据验证 |
-| 开发协作 | **dsh**（DeepSeek Harness）— 代码梳理、测试补强与文档整理 |
-
-如果你也用过这个项目、提过建议或反馈过问题，欢迎通过上面的邮箱告诉我，我会把你加进这里。
-
----
-## 📚 相关文档
-
-| 文档 | 说明 |
-|:---|:---|
-| [**Introduction.md**](Introduction.md) | **技术详解** —— 系统架构、五维决策算法、模块技术档案、数据字典、API 参考、设计决策 |
-| [README_EN.md](README_EN.md) | **English documentation** —— 英文版说明文档 |
-| [CHANGELOG.md](CHANGELOG.md) | 版本变更记录 |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | 贡献指南 |
-| [SECURITY.md](SECURITY.md) | 安全政策 |
-| [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | 行为准则 |
+完整变更细节见 **[CHANGELOG.md](CHANGELOG.md)**。
 
 ---
 
-## 📜 许可证
+## 👥 贡献者与相关文档
 
-本项目采用 [MIT License](LICENSE)。
+- **作者 / 维护者**：**[Leo-luxy](https://github.com/Leo-luxy)**（产品设计、量化策略、全栈工程实现与验证）
+- **相关文档**：
+  - [**Introduction.md**](Introduction.md) —— 系统架构、五维决策算法、模块档案、数据字典与全量 REST API 参考
+  - [**README_EN.md**](README_EN.md) —— English Documentation
+  - [**CHANGELOG.md**](CHANGELOG.md) —— 版本演进日志
+  - [**packaging/PUBLISH_GUIDE.md**](packaging/PUBLISH_GUIDE.md) —— 桌面端多平台打包与 Homebrew / npm 发布指南
+  - [**CONTRIBUTING.md**](CONTRIBUTING.md) ｜ [**SECURITY.md**](SECURITY.md) ｜ [**CODE_OF_CONDUCT.md**](CODE_OF_CONDUCT.md)
 
 ---
 
-## ⚖️ 免责声明
+## 📜 许可证与免责声明
 
-本项目为**技术学习与研究工具**。所有 AI 分析结果、交易建议、回测数据**均不构成任何投资建议**。
-股市有风险，投资需谨慎。使用本项目产生的任何投资决策及其后果，由使用者自行承担。
+本项目采用 **[MIT License](LICENSE)** 开源。
 
----
+**⚖️ 免责声明**：本软件及文档仅为**个人量化研究与技术学习工具**。软件内生成的所有选股名单、回测绩效、AI 分析报告及交易计划**均不构成任何证券投资建议**。股市有风险，入市需谨慎，使用者依据本软件做出的任何投资决策及盈亏后果均由使用者本人独立承担。
 
 <p align="center">
-  <sub>Made with ❤️ for quantitative investors</sub>
+  <sub>Made with ❤️ for A-Share quantitative investors · <b>Floe v2.0.0</b></sub>
 </p>

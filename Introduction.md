@@ -1,8 +1,8 @@
-# GP_ANA 技术详解
+# Floe（原 GP_ANA）技术详解
 
-> **本文档面向开发者与二次开发者**，讲解系统内部架构、算法逻辑、数据结构与设计决策。
+> **本文档面向开发者与二次开发者**，讲解 **Floe v2.0.0** 内部系统架构、算法逻辑、数据结构、桌面端隔离机制与设计决策。
 >
-> - **部署安装、依赖配置、常见问题排查** → 请看 [README.md](README.md)
+> - **一键安装（桌面版 / Homebrew / npm）、源码部署与常见问题排查** → 请看 [README.md](README.md)
 > - **版本变更记录** → 请看 [CHANGELOG.md](CHANGELOG.md)
 
 ---
@@ -46,12 +46,12 @@
 │  · 五维结构化引擎（财务 / 情绪估值 / 股东结构 / 研报 / 技术趋势）          │
 │  · multi_strategy_analyzer.py   —— 「技术为主，其他避雷」，三种模式       │
 │  · two_layer_decision_analyzer.py —— ①冲突研判 ②持仓交易计划            │
-│  · 本地 LLM 推理（Ollama）                                             │
+│  · 双模 LLM 推理引擎（DeepSeek / OpenAI 兼容云端 API  +  本地 Ollama）   │
 └────────────────────────────┬─────────────────────────────────────────┘
                              ▼
 ┌──────────────────────────────────────────────────────────────────────┐
-│  展示层  Web                                                           │
-│  Flask (8081) + 单页前端 + 33 个 REST 路由 + 20+ 种图表                 │
+│  展示与桌面壳层  Web & Native Desktop                                  │
+│  Flask (127.0.0.1:3130 自动顺延) + pywebview 原生桌面端 + 45+ REST 路由  │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -60,40 +60,46 @@
 ### 1.2 目录结构
 
 ```
-GP_ANA/
-├── api/                    # Flask 蓝图（10 个模块，33 个路由）
-│   ├── analysis.py         # 完整分析
-│   ├── quick_analysis.py   # 快速分析（支持 strategy_mode）
-│   ├── detailed.py         # 单步功能执行
-│   ├── backtest.py         # 策略回测
-│   ├── sector.py           # 板块分析
-│   ├── stock_selection.py  # 市场选股
-│   ├── watchlist.py        # 自选股管理
-│   ├── trading.py          # 交易记录
-│   ├── report_viewer.py    # 报告查看
-│   └── common.py           # 共享：交易所映射 / 任务队列 / 步骤执行器
-├── Process/                # 五维分析引擎 + 决策层
-├── daily/                  # 日线策略、指标计算、可视化
-├── weekly/                 # 周线策略
-├── stocks_filter/          # 全市场筛选流水线（4 步，需 Tushare token）
-│   └── selection_history/  #   按交易日留存的最终名单（复盘用，gitignore）
-├── shenwan_config/         # 申万行业阈值配置系统
-├── templates/              # index.html 单页前端
-├── static/                 # 静态资源
-├── data/                   # 运行时生成（gitignore）
-├── log/                    # 运行时生成（gitignore）
-├── config.py               # 本地配置（gitignore，由 example 复制）
-├── trading_records.py      # 持仓记录（gitignore，由 example 复制）
-├── watchlist.py            # 自选股列表
-├── utils.py                # 技术指标计算核心
-├── tushare_client.py       # Tushare 主备 token 池（限流自动切换）
-├── selection_snapshot.py   # 选股整批统一交易日 + 隔离行情快照
+Floe/
+├── api/                      # Flask 蓝图（10 个模块，45+ 个 REST 路由）
+│   ├── analysis.py           # 完整分析（五维 + 两层决策）
+│   ├── quick_analysis.py     # 快速分析（支持 strategy_mode）
+│   ├── detailed.py           # 单步功能执行与数据诊断
+│   ├── backtest.py           # 策略回测、实时监控与本机选股追踪
+│   ├── sector.py             # 板块与指数 AI 分析
+│   ├── stock_selection.py    # 全市场选股
+│   ├── watchlist.py          # 关注股票池管理（含行内改名）
+│   ├── trading.py            # 三位小数买卖记录与 FIFO 逐手收益核算
+│   ├── report_viewer.py      # 历史报告查看
+│   ├── settings.py           # 系统设置、两步 AI 校验、权限体检、检查更新、ZIP 备份
+│   └── common.py             # 共享：交易所映射 / 任务队列 / 步骤执行器
+├── Process/                  # 五维结构化分析引擎 + 两层冲突决策层
+├── daily/                    # 日线策略、指标计算、可视化
+├── weekly/                   # 周线策略
+├── stocks_filter/            # 全市场筛选流水线（4 步，需 Tushare token）
+│   └── selection_history/    #   按交易日留存的最终名单（复盘用，gitignore）
+├── packaging/                # 跨平台桌面打包（PyInstaller）、Homebrew Cask 与 npm CLI
+├── shenwan_config/           # 申万行业阈值配置系统
+├── templates/                # index.html 现代单页量化工作台
+├── static/                   # 离线前端库 (vendor/)、双语词典 (js/i18n.js)、双企鹅图标 (icons/)
+├── data/                     # 运行时生成（gitignore）
+├── log/                      # 运行时生成（gitignore）
+├── version.py                # 全局版本号与元数据唯一来源
+├── app_paths.py              # 源码态与桌面打包态用户数据目录隔离 + 冻结子进程调度
+├── user_settings.py          # 图形化配置持久化 + OpenAI/DeepSeek 到 Ollama 透明桥接层
+├── floe_app.py               # 跨平台原生桌面窗口入口（菜单栏/托盘图标、--web、--doctor）
+├── web_ui.py                 # Flask Web 服务入口（默认 127.0.0.1:3130，冲突自动顺延）
+├── config.py                 # 本地配置（gitignore，首次运行自动从 config.example.py 初始化）
+├── trading_records.py        # 持仓与成交台账（gitignore）
+├── watchlist.py              # 自选股列表
+├── utils.py                  # 40+ 项技术指标计算核心
+├── tushare_client.py         # Tushare 主备 token 池（优先读取 UI 设置，限流自动切换）
+├── selection_snapshot.py     # 选股整批统一交易日 + 隔离行情快照
 ├── selection_result_store.py # 最近成功结果 / 按日留存 / 历史读取
-├── backtest_artifacts.py   # 回测产物身份与时效（schema 2）
-├── indicator_provenance.py # 行情到指标的来源绑定（SHA256 + 计算版本）
-├── strategy_params.py      # 策略参数唯一来源（full/simple）
-├── net_guard.py            # 网络代理守护（默认直连）
-└── web_ui.py               # Web 服务入口
+├── backtest_artifacts.py     # 回测产物身份与时效（schema 2）
+├── indicator_provenance.py   # 行情到指标的来源绑定（SHA256 + 计算版本）
+├── strategy_params.py        # 策略参数唯一来源（simple/full）
+└── net_guard.py              # 网络代理守护（默认国内行情直连，支持 UI 切换）
 ```
 
 ### 1.3 技术栈
@@ -101,15 +107,15 @@ GP_ANA/
 | 层次 | 技术 |
 |:---|:---|
 | 语言 | Python 3.9 ~ 3.12（推荐 3.10 / 3.11） |
-| Web 框架 | Flask 3.x |
-| 并发模型 | `queue.Queue` + `threading`（异步任务 + 前端轮询） |
+| Web 与桌面壳 | Flask 3.x + `pywebview`（macOS WebKit / Windows WebView2 / Linux WebKitGTK） |
+| 并发模型 | `queue.Queue` + `threading`（异步任务 + 前端轮询 + 状态持久化） |
 | 数据处理 | pandas、numpy |
 | 技术指标 | TA-Lib（优先）+ 自实现 fallback |
 | 机器学习 | scikit-learn |
 | 可视化 | matplotlib、seaborn |
-| LLM | Ollama 本地推理（默认 `http://localhost:11434`） |
+| LLM 引擎 | 双模驱动：DeepSeek / OpenAI 兼容云端 API（两步连通校验） + 本地 Ollama（`http://localhost:11434`） |
 | 数据源 | akshare、东方财富数据中心 API、新浪财经、Tushare |
-| 凭据与配额 | `tushare_client.py` 主备 token 池：命中频率超限自动切换，可用 `GP_TUSHARE_TOKENS` 覆盖 |
+| 凭据与配额 | `user_settings.py` + `tushare_client.py` 主备 token 池：命中频率超限自动切换，支持界面配置或 `GP_TUSHARE_TOKENS` 覆盖 |
 
 ---
 
@@ -919,6 +925,7 @@ python check_data_updates.py --mode all      --ticker 300433.SZ  # 全部
 | `GET` | `/api/backtest/get_report` | 获取回测报告 |
 | `GET` | `/api/backtest/get_chart/<path:chart_path>` | 获取回测图表 |
 | `GET` | `/api/backtest/get_backtest_results` | 获取回测结果汇总 |
+| `GET` | `/api/backtest/get_selected_performance` | 获取本机历次选股新入场标的自首次入选日起的累计回测绩效 |
 
 **板块分析（`/api`）**
 
@@ -938,22 +945,40 @@ python check_data_updates.py --mode all      --ticker 300433.SZ  # 全部
 |:---|:---|:---|
 | `POST` | `/api/stock_selection/run` | 启动全市场选股任务 |
 | `GET` | `/api/stock_selection/task_status/<task_id>` | 查询选股进度 |
-| `GET` | `/api/stock_selection/get_result` | 获取选股结果 |
+| `GET` | `/api/stock_selection/get_result` | 获取选股结果（含 `selection_history` 历史日期回看） |
 
 **自选股管理（`/api`）**
 
 | 方法 | 路径 | 说明 |
 |:---|:---|:---|
 | `GET` | `/api/watchlist/get` | 获取关注列表 |
-| `POST` | `/api/watchlist/add` | 添加关注股票 |
+| `POST` | `/api/watchlist/add` | 添加关注股票（支持自动识别简称） |
 | `POST` | `/api/watchlist/remove` | 移除关注股票 |
+| `POST` | `/api/watchlist/update_name` | 行内修改关注股票显示简称 |
 
-**交易记录（`/api`）**
+**交易记录与 FIFO 收益台账（`/api`）**
 
 | 方法 | 路径 | 说明 |
 |:---|:---|:---|
 | `GET` | `/api/trading_records/<stock_code>` | 查询指定股票的交易记录 |
-| `POST` | `/api/add_trading_record` | 新增买卖记录 |
+| `GET` | `/api/trading_portfolio_summary` | 按 FIFO 逐手核算全账户及分股已实现盈亏、实时现价浮盈与逐手明细 |
+| `POST` | `/api/add_trading_record` | 新增买卖记录（支持精确到 `0.001` 元三位小数成交价） |
+| `POST` | `/api/delete_trading_record` | 删除指定股票下的单笔买卖记录 |
+
+**系统设置与运维中心（`/api/settings`）**
+
+| 方法 | 路径 | 说明 |
+|:---|:---|:---|
+| `GET` | `/api/settings/get` | 读取脱敏后的 AI、Tushare、语言、应用图标与版本配置 |
+| `POST` | `/api/settings/fetch_models` | 第 1 步校验：真实连接云端 API / Ollama 并拉取可用模型列表（签发短时验证凭证） |
+| `POST` | `/api/settings/save_ai` | 第 2 步保存：凭有效连通验证凭证持久化保存 AI 配置 |
+| `POST` | `/api/settings/save_tushare` | 验证并保存主备 Tushare Token |
+| `POST` | `/api/settings/preferences` | 切换界面语言（`zh-CN`/`en-US`）、应用图标（`bull`/`bear`）及网络直连策略 |
+| `GET` | `/api/settings/diagnostics` | 执行系统运行环境、网络连通性与权限体检 |
+| `GET` | `/api/settings/check_update` | 比对 GitHub Releases 最新版本并返回更新日志 |
+| `POST` | `/api/settings/open_data_dir` | 在系统文件管理器（Finder / Explorer）中打开用户数据目录 |
+| `GET` | `/api/settings/export_backup` | 导出全量个人配置、自选股与台账 `.zip` 备份包 |
+| `POST` | `/api/settings/import_backup` | 经 AST 白名单校验后导入恢复 `.zip` 备份包 |
 
 **报告查看（`/api`）**
 
@@ -978,7 +1003,7 @@ python check_data_updates.py --mode all      --ticker 300433.SZ  # 全部
 import requests
 
 # 1. 触发任务
-resp = requests.post('http://localhost:8081/api/quick_analyze', json={
+resp = requests.post('http://127.0.0.1:3130/api/quick_analyze', json={
     'stock_code': '688981',
     'task_type': 'daily',
     'strategy_mode': 'short'        # short / medium / long
@@ -986,10 +1011,10 @@ resp = requests.post('http://localhost:8081/api/quick_analyze', json={
 task_id = resp.json()['task_id']
 
 # 2. 轮询状态
-status = requests.get(f'http://localhost:8081/api/quick_task_status/{task_id}').json()
+status = requests.get(f'http://127.0.0.1:3130/api/quick_task_status/{task_id}').json()
 
 # 3. 拉取报告
-report = requests.get('http://localhost:8081/api/quick_report/688981').json()
+report = requests.get('http://127.0.0.1:3130/api/quick_report/688981').json()
 ```
 
 ### 7.3 `strategy_mode` 参数
@@ -1092,6 +1117,14 @@ config = get_config_by_style('conservative')
 | `swing` | 持仓数天至数周，捕捉日线级波段；要求日线与周线共振 |
 | `neutral` | 不预设偏好，综合多空信号给出客观判断 |
 
+### 8.4 跨平台路径隔离与图形化设置（v2.0.0）
+
+- **源码态 vs 桌面打包态自动分流（`app_paths.py`）**：
+  - 在仓库根目录直接执行 `python web_ui.py` 时，`BUNDLE_DIR == USER_DATA_DIR == 仓库根目录`，100% 兼容原有 CLI 脚本与单元测试。
+  - 在 PyInstaller 冻结应用（或显式传入 `FLOE_PACKAGED=1` / `FLOE_USER_DATA_DIR`）中，只读代码资源保留在安装包内，而可变数据（`user_settings.json`、`watchlist.py`、`trading_records.py`、`data/`、`stocks_filter/`）自动隔离写入系统标准用户目录（macOS `~/Library/Application Support/Floe`、Windows `%APPDATA%\Floe`、Linux `~/.local/share/floe`），版本升级替换应用包时个人数据零丢失。
+- **云端 OpenAI/DeepSeek 与本地 Ollama 透明桥接（`user_settings.py`）**：
+  - 在界面完成两步连通校验后写入 `user_settings.json`。运行时通过 `install_ollama_cloud_bridge()` 拦截各分析脚本对 `ollama.Client` / `ollama.chat` 的调用，当处于 `cloud_api` 模式时自动转发至 OpenAI 兼容 `/v1/chat/completions` 接口；当界面语言设为 `en-US` 时，自动向提示词注入英文撰写指令。
+
 ---
 
 ## 9. 技术指标计算
@@ -1166,21 +1199,20 @@ TECHNICAL_INDICATORS = {
 
 ## 10. 运维维护
 
-### 10.1 后台常驻运行
+### 10.1 后台常驻运行与监听安全
 
 ```bash
 # nohup 方式
 nohup python web_ui.py > log/web_ui.log 2>&1 &
 
 # tmux 方式（便于查看输出）
-tmux new -s gpana
-python web_ui.py      # Ctrl+B 再按 D 脱离；tmux attach -t gpana 重新进入
+tmux new -s floe
+python web_ui.py      # Ctrl+B 再按 D 脱离；tmux attach -t floe 重新进入
 ```
 
-> ⚠️ **长期运行前请先修改 `web_ui.py`**：当前默认 `debug=True` + `host='0.0.0.0'`，
-> 生产环境应改为 `app.run(host='127.0.0.1', port=8081, debug=False)`。
+> 🔒 **安全默认**：`web_ui.py` 默认绑定本机回环 `127.0.0.1:3130` 且 `debug=False`，不向局域网暴露端口。若需自定义监听地址或端口，可通过环境变量 `GP_ANA_WEB_HOST`、`GP_ANA_WEB_PORT`、`GP_ANA_WEB_DEBUG` 覆盖。
 
-### 10.2 Ollama 服务常驻
+### 10.2 Ollama 服务常驻（使用本地模型时）
 
 ```bash
 ollama list                    # 检查是否运行
@@ -1190,11 +1222,11 @@ brew services start ollama     # macOS 常驻
 
 ### 10.3 数据备份
 
-核心资产是 `data/`、`config.py`、`trading_records.py`：
-
-```bash
-tar -czf gpana_backup_$(date +%Y%m%d).tar.gz data/ config.py trading_records.py watchlist.py
-```
+- **界面一键备份（推荐）**：在「⚙️ 系统设置 → 数据备份与目录」点击「导出全量配置与台账 (.zip)」即可打包保存 `user_settings.json`、`watchlist.py`、`trading_records.py` 等核心资产。
+- **命令行全量归档（含行情与报告）**：
+  ```bash
+  tar -czf floe_backup_$(date +%Y%m%d).tar.gz data/ user_settings.json config.py trading_records.py watchlist.py
+  ```
 
 ### 10.4 日志与空间清理
 
@@ -1205,14 +1237,14 @@ du -sh data/          # 查看数据目录占用
 
 > 💡 `data/` 会持续增长——每次分析都生成带时间戳的新报告。建议定期清理旧报告。
 
-### 10.5 端口占用排查
+### 10.5 端口冲突自动顺延与排查
+
+`web_ui.py` 与 `floe_app.py` 内置双阶段端口可用性探测（`pick_available_port`）：当默认首选端口 **`3130`** 被其他进程占用或无权限绑定时，会自动向后顺延至 `3131`、`3132`……直至找到空闲端口。如需手动查看占用进程：
 
 ```bash
-lsof -i :8081                    # macOS / Linux
-netstat -ano | findstr :8081     # Windows
+lsof -i :3130                    # macOS / Linux
+netstat -ano | findstr :3130     # Windows
 ```
-
-端口被占用时编辑 `web_ui.py` 最后一行的 `port` 值。
 
 ### 10.6 批量任务
 
@@ -1344,8 +1376,6 @@ python batch_analyze.py --mode periodic --ticker 300433.SZ   # 低频 3 步
 | **部分数据源无真实数据时会退化为模拟值** | 需警惕由此引入的噪音（历史上业绩预告分析曾出现此问题） |
 | **依赖公开财经接口** | 接口变更或限流会影响数据抓取，需注意 akshare 版本升级 |
 | **`data/` 无限增长** | 每次分析生成带时间戳文件，需定期手动清理 |
-| **Web 默认 debug 模式** | 上线前必须手动改为 `debug=False` |
-| **硬编码端口** | `8081` 写死在 `web_ui.py`，不支持命令行覆盖 |
 
 ### 12.2 可选的改进方向
 
@@ -1353,10 +1383,10 @@ python batch_analyze.py --mode periodic --ticker 300433.SZ   # 低频 3 步
 |:---|:---|
 | **数据文件配置化** | 把 `check_data_updates.py` 中的文件清单移到配置文件，便于扩展 |
 | **并行处理多股票** | 当前为串行循环，可引入并发提升批量效率 |
-| **更新失败监控预警** | 数据抓取失败时主动告警，而非静默跳过 |
+| **更新失败监控预警** | 数据抓取失败时支持更多外部通知渠道 |
 | **统一数据质量检查** | 在分析前增加字段完整性与异常值校验 |
 | **依赖注入解耦** | `config.py` 全局导入较多，可改为显式注入以便测试 |
-| **支持云端 LLM** | `get_ai_analysis()` 可扩展支持 OpenAI / DeepSeek 等（当前仅 Ollama） |
+| **Apple / Windows 代码签名公证** | 为桌面版 `.dmg` 与 `.exe` 增加商业开发者公证签名，免除系统首次打开安全提示 |
 
 ---
 
@@ -1364,8 +1394,10 @@ python batch_analyze.py --mode periodic --ticker 300433.SZ   # 低频 3 步
 
 | 文档 | 说明 |
 |:---|:---|
-| [README.md](README.md) | **部署安装与使用主文档**（11 步流程 + Token 申请 + FAQ） |
+| [README.md](README.md) | **部署安装与使用主文档**（桌面版 / Homebrew / npm / 源码部署 + FAQ） |
+| [README_EN.md](README_EN.md) | **English Documentation** |
 | [CHANGELOG.md](CHANGELOG.md) | 版本变更记录 |
+| [packaging/PUBLISH_GUIDE.md](packaging/PUBLISH_GUIDE.md) | 多平台桌面打包与 Homebrew / npm 发布操作手册 |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | 贡献指南 |
 | [SECURITY.md](SECURITY.md) | 安全政策 |
 | [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | 行为准则 |

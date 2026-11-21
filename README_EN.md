@@ -1,910 +1,246 @@
-# GP_ANA — AI-Powered A-Share Analysis System
+<p align="center">
+  <img src="static/icons/floe_icon_bull.png" alt="Floe Bull Icon" width="92">
+  &nbsp;&nbsp;&nbsp;
+  <img src="static/icons/floe_icon_bear.png" alt="Floe Bear Icon" width="92">
+</p>
 
-**Current version: v1.6.0**
-
-[中文](README.md) ｜ **English**
+<h1 align="center">Floe (formerly GP_ANA)</h1>
 
 <p align="center">
+  <b>A-Share Screener & Multi-Dimensional AI Quantitative Workbench Tailored for CN Investors</b><br>
+  <sub>Version: <b>v2.0.0</b> ｜ <a href="README.md">简体中文</a> · <b>English</b></sub>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Version-v2.0.0-2563eb.svg" alt="Version">
+  <img src="https://img.shields.io/badge/Platform-macOS%20%7C%20Windows%20%7C%20Linux-0f172a.svg" alt="Platform">
+  <img src="https://img.shields.io/badge/Distribution-Desktop%20%7C%20Homebrew%20%7C%20npm%20%7C%20Source-059669.svg" alt="Distribution">
+  <img src="https://img.shields.io/badge/AI-DeepSeek%20%2F%20OpenAI%20API%20%7C%20Ollama-ea580c.svg" alt="AI">
   <img src="https://img.shields.io/badge/Python-3.9--3.12-blue.svg" alt="Python">
   <img src="https://img.shields.io/badge/License-MIT-green.svg" alt="License">
-  <img src="https://img.shields.io/badge/Platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey.svg" alt="Platform">
-  <img src="https://img.shields.io/badge/AI-Ollama%20%7C%20Fully%20Local-orange.svg" alt="AI">
 </p>
 
 ---
 
-## 📖 What Is This
+## 📖 Overview
 
-GP_ANA is an **A-share investment decision system that runs entirely on your own computer**.
+**Floe** (formerly **GP_ANA**) is a cross-platform **China A-Share quantitative screening, trend backtesting, and multi-dimensional AI investment research workbench** that runs directly on your own computer.
 
-It automatically collects the data scattered across dozens of sources — price action, financial statements,
-capital flows, margin trading, shareholder structure, analyst research — feeds it to a **local large language model**
-for multi-dimensional analysis, and produces a concrete, position-aware trading plan.
+It automatically collects and cryptographically verifies scattered market evidence—full-market daily screening, forward-adjusted OHLCV, financial statements, main fund flows, margin trading, shareholder concentration, and institutional research reports—and feeds structured summaries into either **Cloud LLM APIs (DeepSeek / any OpenAI-compatible provider)** or **local Ollama models** to produce conflict-checked, position-aware trading plans.
 
-**In one sentence: it compresses the judgement you'd normally assemble by visiting a dozen websites and reading
-dozens of financial reports into a single report you can read in a few minutes.**
-
-> **First time here?** Jump straight to [🚀 Step-by-Step Deployment](#-step-by-step-deployment). It takes about
-> 20 minutes end to end (excluding AI model download time).
+> **🚀 Ready to use out of the box?** Jump straight to **[Quick Installation (Desktop / Homebrew / npm)](#-quick-installation-choose-any-method)** — zero Python or TA-Lib setup required.
 >
-> **Want to understand the internals?** See **[Introduction.md](Introduction.md)** — architecture, algorithms,
-> data structures and design decisions.
+> **🛠️ Building or customizing from source?** Jump to **[Method D: Full Source Deployment](#method-d-full-source-deployment-for-developers--custom-strategies)**.
+>
+> **📐 Deep dive into architecture & algorithms?** Read **[Introduction.md](Introduction.md)** (Chinese technical reference covering 5D weights, 2-layer conflict reasoning, snapshot isolation, artifact provenance, and REST APIs).
 
 ---
 
-## ✨ Features
+## ✨ Key Highlights in v2.0.0
 
-### 1️⃣ Five-Dimensional Analysis — It's Not Just Candlesticks
+### 1️⃣ Streamlined 3-Step Quantitative Pipeline: Screener → Watchlist → Backtest
 
-Making decisions from OHLC data alone is fragile. GP_ANA evaluates five dimensions simultaneously, and each one
-emits a **structured verdict** (bullish/bearish/neutral + confidence + anomalies) rather than a pile of raw numbers:
+```
+01 Market Screener               02 Watchlist Pool                 03 Strategy Backtest & Monitor
+──────────────────────           ──────────────────────            ──────────────────────────────
+5,000+ A-share Tushare scan ──▶  Curate core watch universe  ──▶   Default Simple (MA5 > MA20)
+Unified trade-date snapshot      Synced live signal badges         Symmetric entry/exit + 3d cooldown
+New-entry-only filtering         Inline rename & 1-click jump      Local cohort performance tracker
+```
 
-| Dimension | Weight | What it answers |
+- **Signal-First Market Screener (`01`)**: Freezes a single verified trade date across the entire batch and strictly displays **new entries triggered on that exact trade date** (`Entry Date == Data As-Of`), automatically filtering out older carry-over holdings and Beijing Stock Exchange (`.BJ`) tickers while archiving every successful batch under `selection_history/<YYYYMMDD>/`.
+- **Practical Default Backtest & Cohort Tracking (`03`)**: Defaults to the responsive **Simple Trend Preset (`MA5 > MA20`)** with one-click switching to the strict 4-MA Full Preset, 3-trading-day post-exit cooldown, and a new **Tracked Selection Cohort Performance** table measuring cumulative returns from the exact day each stock was first discovered on your machine.
+
+### 2️⃣ 5-Dimension Research + 2-Layer Conflict-Aware AI Decision Engine
+
+Instead of dumping tens of thousands of raw words into an LLM, Floe distills five dimensions into structured JSON verdicts first:
+
+| Dimension | Default Weight | Key Questions Answered |
 |:---|--:|:---|
-| 📈 **Technical Trend** | **40%** | Is there a trend? Overbought or oversold? Where are the key levels? |
-| 💰 **Financial Quality** | 25% | Is the profit real cash? Is growth sustainable? Is leverage dangerous? |
-| 🌡️ **Sentiment & Valuation** | 15% | Are institutions buying or selling? Where does valuation sit? |
-| 🏢 **Shareholder Structure** | 10% | Is ownership concentrated or dispersed? Are institutions accumulating or exiting? |
-| 📰 **Analyst Research** | 10% | How are ratings distributed? How are target prices and forecasts moving? |
+| 📈 **Technical Trend** | **40%** | Is an uptrend confirmed? Overbought/oversold? Where are key support/resistance levels? |
+| 💰 **Financial Quality** | 25% | Are earnings backed by operating cash flow? Are ROE, margins, and leverage healthy? |
+| 🌡️ **Sentiment & Valuation** | 15% | Is smart money flowing in or out? Where do PE/PB sit historically? |
+| 🏢 **Shareholder Structure** | 10% | Is shareholder count concentrating? Are institutions & northbound funds accumulating? |
+| 📰 **Research Consensus** | 10% | How are analyst ratings and earnings forecasts trending over the past quarter? |
 
-### 2️⃣ Two-Layer AI Decision — Argue First, Then Act
+- **Layer 1 (Hedge Fund Risk Manager)**: Isolates **contradictions** across the 5 dimensions (e.g., bullish technical breakout vs. deteriorating cash flow) and identifies key invalidation metrics.
+- **Layer 2 (Trading Coach)**: Combines Layer 1's verdict with your **real FIFO cost basis and unrealized P&L** to output concrete *"If X happens, execute Y"* price action plans—never vague boilerplate.
 
-This is the single biggest difference between GP_ANA and an ordinary "report generator".
+### 3️⃣ Cloud API (DeepSeek / OpenAI-Compatible) + Local Ollama Dual Engine
 
-```
-Layer 1: Conflict Detection
-  Isolate only the conclusions that【contradict each other】across the five dimensions
-  Role: hedge fund risk manager
-  Output: what is the logic behind this contradiction? Which metric should we watch?
+- **Zero GPU Requirement (Recommended)**: Configure **DeepSeek**, SiliconFlow, Qwen, Moonshot, or any OpenAI-compatible endpoint directly in **Settings → AI & Data Sources**. A mandatory **2-step live verification** (*1. Connect & Fetch Models* → *2. Save AI Settings*) ensures your key and model ID work before running any task.
+- **100% Local Inference**: Prefer offline LLM execution? Switch seamlessly to local **Ollama** (`http://localhost:11434`) at any time.
 
-          ↓ only conclusions and your real cost basis are passed down
+### 4️⃣ 3-Decimal (`0.001` CNY) FIFO Trading Ledger
 
-Layer 2: Trading Plan
-  Role: trading coach
-  Hard constraint: vague advice is forbidden
-  Output: an actionable scenario plan — "if the price fails to hold 27.6 within 3 sessions, cut to half position"
-```
+- Supports **sub-cent 3-decimal fill prices** (e.g. `15.825` CNY) required for A-share ETFs, convertible bonds, and low-priced stocks.
+- Automatically matches historical buys and sells via **FIFO (First-In, First-Out)**, displaying Account Total Net P&L, Realized Profit, and Live Unrealized P&L (marked to EastMoney real-time quotes with local QFQ fallback), plus expandable lot-by-lot breakdowns.
 
-**Why design it this way?** If you dump tens of thousands of words of reports into an LLM, it degrades into a
-*summarizer* — and when it meets conflicting opinions it produces a fence-sitting conclusion.
-Isolating the contradictions for the model to reason about, then grounding the advice in your **actual P&L**,
-plays to what LLMs are genuinely good at.
+### 5️⃣ Native Desktop App, Bilingual UI & Dual Penguin Icons
 
-### 3️⃣ Technical-Led, Others for Risk Avoidance
+- **Lightweight Native Window**: Built on `pywebview` (system WebKit / WebView2 / WebKitGTK—no bloated Chromium bundle), complete with a monochrome penguin macOS menu-bar icon and Windows/Linux system tray.
+- **Dual App Icons**: Switch anytime in Settings between **📈 Bullish Lookout Penguin** and **📉 Bearish Eyes-Closed Penguin** (updates sidebar, browser favicon, and macOS Dock icon live).
+- **Full Chinese / English UI & English AI Reports**: Switching to `English` translates the entire workbench *and* instructs the LLM to generate all subsequent stock and sector research reports in professional English.
+- **Auto Port Fallback & 1-Click Backup**: Binds safely to `127.0.0.1:3130` (`debug=False`) and automatically falls back to `3131+` if occupied; includes AST-validated `.zip` backup export/import.
 
-The other four dimensions **never generate buy signals on their own** — they hold a veto only.
-The same data, three ways of using it:
+---
 
-| Mode | Timeframe | Technical | Financial | Shareholder | Sentiment |
-|:---|:---|--:|--:|--:|--:|
-| **Short-term** | < 1 month | **80%** | 0% | 0% | 20% |
-| **Medium-term** | 1–6 months | **60%** | 30% | 10% | 0% |
-| **Long-term** | > 6 months | 20% | **50%** | **30%** | 0% |
+## 🖥️ Screenshots (Floe v2.0.0 Live Showcase)
 
-Risk thresholds adjust with the mode automatically. Debt-to-asset ratio, for example:
-80% tolerated short-term, 70% medium-term, only 60% long-term.
+> Captured from an isolated demo workspace populated with synthetic public blue-chip data.
 
-### 4️⃣ Fully Local Inference — Your Data Never Leaves Your Machine
+### 01 Market Screener & 02 Watchlist Command Deck
+<p align="center">
+  <img src="assets/screenshots/01_market_screener.png" alt="01 Market Screener" width="49%">
+  <img src="assets/screenshots/02_watchlist_pool.png" alt="02 Watchlist Command Deck" width="49%">
+</p>
 
-- AI inference runs on **your local Ollama** — **no cloud API key required**
-- Market data comes straight from public financial endpoints
-- Your cost basis, trade records and analysis results **stay on your disk only**
+### 03 Strategy Backtest Live Monitor & 5D Two-Layer AI Research Hub
+<p align="center">
+  <img src="assets/screenshots/03_strategy_backtest.png" alt="03 Strategy Backtest & Live Monitor" width="49%">
+  <img src="assets/screenshots/04_ai_research_hub.png" alt="5D AI Research Hub" width="49%">
+</p>
 
-> This is a deliberate design choice: investment decisions involve personal financial information,
-> and that should never be uploaded to a third-party AI service.
+### 3-Decimal FIFO Trading Ledger & Settings (Dual Penguin Icons · Diagnostics)
+<p align="center">
+  <img src="assets/screenshots/05_trading_ledger_fifo.png" alt="3-Decimal FIFO Trading Ledger" width="49%">
+  <img src="assets/screenshots/06_settings_and_icons.png" alt="Settings & Dual App Icons" width="49%">
+</p>
 
-### 5️⃣ Multi-Source with Automatic Failover
+### Dark + English Workbench Mode & Strategy Backtest Signal Chart
+<p align="center">
+  <img src="assets/screenshots/07_dark_en_workbench.png" alt="Dark Mode English Workbench" width="49%">
+  <img src="assets/screenshots/08_backtest_kline_chart.png" alt="Strategy Backtest K-Line & Equity Curve" width="49%">
+</p>
 
-A single data source going down shouldn't blind you. GP_ANA uses **redundant sources** for critical data:
+---
 
-- Quotes come from both Sina Finance and akshare; if the primary fails it fails over automatically
-- Valuation data has a dual-path fallback
-- Every collection step is exception-isolated — **one failure won't crash the whole run**
-- All collectors are **incremental**: they fetch only new data, never re-download
+## 🚀 Quick Installation (Choose Any Method)
 
-### 6️⃣ Whole-Market Stock Screening Pipeline
+### Method A: Standalone Desktop Installer (Zero Dependencies · Recommended)
 
-Don't want to stare only at your watchlist? There's a complete pipeline built in:
+Download the prebuilt bundle for your OS from **[GitHub Releases](https://github.com/Leo-luxy/Floe/releases)**—no Python or TA-Lib installation needed:
 
-```
-Tushare whole-market daily  →  merge basic metrics  →  multi-condition filter  →  per-stock backtest  →  final holdings
-        (5,500+ stocks)        (mkt cap/PE/PB)        (price/turnover/          (real historical
-                                                       amplitude)                backtest)
-```
-
-### 7️⃣ Strategy Backtesting + Live Monitoring
-
-- Full backtest of the trend-following strategy, with equity curve, Sharpe ratio and max drawdown
-- Entry/exit use **symmetric dual signals**: entry on trend confirmation (bullish structure + volume + ADX + MACD),
-  exit on trend termination (break of 10-day low, or MA death cross with MACD turning negative)
-- **3-trading-day cooldown** after an exit, preventing the self-contradictory "just sold, now buy" prompts
-- All protective stops retained: time stop / peak drawdown / ATR stop / trailing take-profit / partial take-profit
-
-### 8️⃣ 20+ Professional Charts, Generated Automatically
-
-Every stock gets price/volume charts, a technical indicator panel, Bollinger bands, a correlation heatmap,
-signal-effectiveness analysis, support/resistance levels, trend channels, AI price predictions and feature
-importance — viewable in the browser or exportable for reports.
-
-### How It Compares
-
-| Aspect | Traditional trading software | **GP_ANA** |
+| OS | Package | First-Launch Notes |
 |:---|:---|:---|
-| Data sources | Single platform | 20+ collectors, multi-source with failover |
-| Analysis dimensions | Candlesticks only | **Five dimensions**: financial + sentiment/valuation + technical + shareholder + research |
-| AI decision | ❌ | ✅ **Two-layer**: conflict detection → position-aware trading plan |
-| Strategy validation | Manual review | Automated backtest + live monitoring |
-| Stock screening | Manual browsing | Whole-market filter → backtest → final holdings |
-| Data privacy | Uploaded to the cloud | ✅ **Fully local inference**, positions never leave your machine |
-| Cost | Subscription fee | Free & open source + local model |
+| **macOS** (Apple Silicon / Intel) | `Floe-v2.0.0-macos-*.dmg` | Drag `Floe.app` to `Applications`. If macOS Gatekeeper warns about an unverified developer on first launch, run once in Terminal:<br>`xattr -cr /Applications/Floe.app` |
+| **Windows 10 / 11** (x64) | `Floe-v2.0.0-windows-x64.zip` | Extract and double-click `Floe.exe` |
+| **Linux** (Ubuntu 22.04+ x64) | `Floe-v2.0.0-linux-x86_64.AppImage` | `chmod +x Floe-*.AppImage && ./Floe-*.AppImage` |
+
+> 💾 **Upgrade-Safe User Data**: Packaged builds isolate all user settings, watchlists, trading ledgers, and market data under your OS standard app-data folder (`~/Library/Application Support/Floe` on macOS, `%APPDATA%\Floe` on Windows, `~/.local/share/floe` on Linux), so app upgrades never overwrite your data.
 
 ---
 
-## 🖥️ Screenshots
-
-### Full Analysis & Quick Analysis
-<p align="center">
-  <img src="assets/screenshots/完整分析.png" alt="Full Analysis" width="45%">
-  &nbsp;
-  <img src="assets/screenshots/快速分析.png" alt="Quick Analysis" width="45%">
-</p>
-
-### Detailed Mode & Single Function
-<p align="center">
-  <img src="assets/screenshots/详细模式.png" alt="Detailed Mode" width="45%">
-  &nbsp;
-  <img src="assets/screenshots/单功能执行.png" alt="Single Function" width="45%">
-</p>
-
-### Backtest & Stock Screening
-<p align="center">
-  <img src="assets/screenshots/策略回测.png" alt="Backtest" width="45%">
-  &nbsp;
-  <img src="assets/screenshots/市场选股.png" alt="Stock Screening" width="45%">
-</p>
-
-### Sector Analysis & Watchlist
-<p align="center">
-  <img src="assets/screenshots/板块分析.png" alt="Sector Analysis" width="45%">
-  &nbsp;
-  <img src="assets/screenshots/关注股票.png" alt="Watchlist" width="45%">
-</p>
-
-### Report Viewer & Trade Records
-<p align="center">
-  <img src="assets/screenshots/报告查看.png" alt="Report Viewer" width="45%">
-  &nbsp;
-  <img src="assets/screenshots/买卖记录管理.png" alt="Trade Records" width="45%">
-</p>
-
----
-
-## 🚀 Step-by-Step Deployment
-
-> About 20 minutes end to end. Every step gives you the **exact commands** and **which file to edit, on which line**.
-
-### Step 0: Check that your machine qualifies
-
-| Item | Requirement | Notes |
-|:---|:---|:---|
-| **OS** | macOS / Linux / Windows | macOS is the least painful |
-| **Python** | **3.9 – 3.12** (3.10 / 3.11 recommended) | ⚠️ **3.13 is not supported** — see below |
-| **RAM** | ≥ 8 GB | ≥ 32 GB recommended if you run local LLMs |
-| **Disk** | ≥ 5 GB | Excludes the AI model; the model itself can exceed 20 GB |
-| **Network** | Access to Chinese financial sites | Sources are Eastmoney / akshare / Sina / Tushare |
-
-Check your Python version first:
+### Method B: Homebrew (macOS)
 
 ```bash
-python3 --version
-```
-
-> ⚠️ **Why not Python 3.13?**
-> The dependency list pins `numpy==1.26.3`, which only ships prebuilt wheels for Python 3.9 – 3.12.
-> On 3.13 it falls back to compiling from source, which usually fails.
-> If you must use 3.13, change `numpy==1.26.3` to `numpy>=2.1` in `requirements.txt` (not thoroughly tested).
-
-If your version doesn't fit, create a dedicated conda environment:
-
-```bash
-conda create -n gpana python=3.10 -y
-conda activate gpana
+brew tap Leo-luxy/tap
+brew install --cask floe
 ```
 
 ---
 
-### Step 1: Get the code
+### Method C: npm Global CLI (Cross-Platform)
+
+Requires Node.js `>= 18`:
 
 ```bash
-git clone https://github.com/Leo-luxy/GP_ANA.git
-cd GP_ANA
-```
+npm install -g @leo-luxy/floe
 
-All subsequent commands are run from this directory.
+# Launch native desktop window
+floe
+
+# Launch in browser-only mode
+floe --web --port 3130
+
+# Run environment & permission diagnostics
+floe --doctor
+```
 
 ---
 
-### Step 2: Create a virtual environment
+### Method D: Full Source Deployment (For Developers & Custom Strategies)
 
-Keeps your system Python clean:
+#### Step 1: Clone Repository & Prepare Python 3.10 / 3.11
 
-```bash
-# Create
-python3 -m venv venv
-
-# Activate — macOS / Linux
-source venv/bin/activate
-
-# Activate — Windows
-venv\Scripts\activate
-```
-
-Once activated, `(venv)` appears at the start of your prompt.
-
----
-
-### Step 3: Install the TA-Lib system library (the usual sticking point)
-
-GP_ANA uses `TA-Lib` to compute 40+ technical indicators. **It has a C library underneath, so you must install
-the system library before the Python package** — doing it in the wrong order always fails.
-
-**macOS:**
+> Note: `numpy==1.26.3` supports Python **3.9 – 3.12** (Python 3.10 / 3.11 recommended).
 
 ```bash
-brew install ta-lib
+git clone https://github.com/Leo-luxy/Floe.git
+cd Floe
+
+conda create -n floe python=3.10 -y
+conda activate floe
 ```
 
-**Ubuntu / Debian:** (no prebuilt package in the official repos — build from source)
+#### Step 2: Install Native TA-Lib C Library
 
-```bash
-sudo apt-get update
-sudo apt-get install -y build-essential wget
-wget https://github.com/ta-lib/ta-lib/releases/download/v0.6.4/ta-lib-0.6.4-src.tar.gz
-tar -xzf ta-lib-0.6.4-src.tar.gz
-cd ta-lib-0.6.4/
-./configure --prefix=/usr
-make
-sudo make install
-cd ..
-```
+- **macOS**: `brew install ta-lib`
+- **Ubuntu / Debian**:
+  ```bash
+  sudo apt-get update && sudo apt-get install -y build-essential wget
+  wget https://github.com/ta-lib/ta-lib/releases/download/v0.6.4/ta-lib-0.6.4-src.tar.gz
+  tar -xzf ta-lib-0.6.4-src.tar.gz && cd ta-lib-0.6.4
+  ./configure --prefix=/usr && make && sudo make install && cd ..
+  ```
+- **Windows**: Download the matching `.whl` from [cgohlke/talib-build Releases](https://github.com/cgohlke/talib-build/releases) and `pip install` it.
 
-**Windows:** the easiest route is a prebuilt wheel (pick the file matching your Python version and architecture):
-
-```
-https://github.com/cgohlke/talib-build/releases
-```
-
-```bash
-pip install TA_Lib-0.6.8-cp310-cp310-win_amd64.whl
-```
-
-**Verify it worked** (printing a version number means success):
-
-```bash
-python3 -c "import talib; print(talib.__version__)"
-```
-
-> Don't proceed until this passes — otherwise every technical analysis feature will crash later.
-
----
-
-### Step 4: Install Python dependencies
+#### Step 3: Install Python Dependencies & Launch
 
 ```bash
 pip install -r requirements.txt
-```
 
-Takes roughly 3–10 minutes. **Nothing extra needs to be installed manually** (`flask` is already included).
-
-If an individual package fails, retry it on its own:
-
-```bash
-pip install akshare==1.18.39
-```
-
----
-
-### Step 5: Install and start Ollama (required for AI features) ⭐
-
-All AI analysis, the five-dimensional reasoning and the two-layer decision depend on a local LLM.
-
-**1) Install Ollama** — visit <https://ollama.com/download>, or on macOS `brew install ollama`
-
-**2) Start the service**
-
-```bash
-ollama serve
-```
-
-It listens on `http://localhost:11434`. **It's best to keep it running** (on macOS you can use
-`brew services start ollama`).
-
-**3) Pull a model**
-
-> ⚠️ **Note**: the default model name in `config.example.py` is a custom model from the author's own machine and
-> **does not exist in the public Ollama registry** — pulling it directly will fail. Pull a model you can actually
-> get, then point the config at it (covered in the next step).
->
-> 💡 You can also browse the Ollama website and pick any model you like.
-
-```bash
-# Pick one based on your available memory
-ollama pull qwen3:8b          # ~5 GB, runs on 8GB RAM, fast
-ollama pull qwen3:32b         # ~20 GB, better quality, 32GB+ RAM recommended
-ollama pull deepseek-r1:32b   # alternative
-```
-
-**4) Confirm the model is ready**
-
-```bash
-ollama list
-```
-
-**Note down the model name you pulled** — you'll need it in the next step.
-
----
-
-### Step 6: Create the config file `config.py` ⭐
-
-The repository does **not** ship `config.py` (it holds your personal stock list and is excluded by `.gitignore`).
-Only a template is provided. **This step is: copy the template, then change two things.**
-
-**Copy the template:**
-
-```bash
-# macOS / Linux
-cp config.example.py config.py
-
-# Windows
-copy config.example.py config.py
-```
-
-**Then edit `config.py` — at minimum these two places:**
-
-**① `STOCK_TICKERS` — the stocks you want analysed**
-
-```python
-# config.py, around line 9
-STOCK_TICKERS = {
-    'byd':    '002594.SZ',   # key name is arbitrary; value must be "6-digit code + exchange suffix"
-    'lanxi':  '300433.SZ',
-    # add more
-}
-```
-
-> **Exchange suffix rule**: codes starting with `6` → `.SH` (Shanghai); codes starting with `0` or `3` → `.SZ` (Shenzhen).
-
-**② `AI_CONFIG.model` — the model name you actually pulled in Step 5**
-
-```python
-# config.py, around line 57
-AI_CONFIG = {
-    'base_url': 'http://localhost:11434',   # Ollama address — no change needed locally
-    'model': 'qwen3:8b',                    # ← set this to your model name
-    'temperature': 0.3,
-    'max_tokens': 8192,
-    'trading_strategy': 'neutral',          # see table below
-    'fallback_models': ['qwen3:8b'],        # ← same here
-}
-```
-
-`trading_strategy` accepts four values and determines the lens the AI analyses through:
-
-| Value | Meaning |
-|:---|:---|
-| `neutral` | Objective and balanced (default) — weighs bullish and bearish signals together |
-| `trend_following` | Trades only when a clear trend exists |
-| `mean_reversion` | Fades extremes, buying weakness and selling strength |
-| `swing` | Holds for days to weeks, capturing daily-level swings |
-
----
-
-### Step 7: Create `trading_records.py` (optional but strongly recommended)
-
-**Why bother:** the second decision layer reads your **real cost basis and P&L**.
-Without it the AI can only talk about fundamentals in the abstract; with it, you get advice like
-"you're down 27% — here's whether to cut or add".
-
-**Copy the template:**
-
-```bash
-# macOS / Linux
-cp trading_records.example.py trading_records.py
-
-# Windows
-copy trading_records.example.py trading_records.py
-```
-
-**Then edit `trading_records.py` with your real trades:**
-
-```python
-# trading_records.py
-TRADING_RECORDS = {
-    '600519.SH': [
-        {'date': '2026-01-15', 'type': 'buy',  'price': 1500.00, 'shares': 100},
-        {'date': '2026-02-20', 'type': 'sell', 'price': 1580.00, 'shares': 50},
-    ],
-    '000858.SZ': [
-        {'date': '2026-03-01', 'type': 'buy',  'price': 130.00, 'shares': 500},
-    ],
-}
-```
-
-| Field | Meaning |
-|:---|:---|
-| `date` | Trade date, `YYYY-MM-DD` |
-| `type` | `buy` or `sell` |
-| `price` | Execution price |
-| `shares` | Number of shares |
-
-> You can skip this file and define `TRADING_RECORDS = {...}` directly in `config.py` instead, commenting out the
-> `from trading_records import TRADING_RECORDS` line.
->
-> 💡 You can also add and remove records from the Web UI under **Trade Records** — no need to hand-edit the file.
-
----
-
-### Step 8: Configure a Tushare token (**only needed for Stock Screening**) ⭐
-
-**This is the only credential the system ever asks for.** Every other data source (akshare, Eastmoney, Sina) is a
-free public endpoint requiring **no key at all**; AI runs on local Ollama and needs **no cloud API key either**.
-
-**If you don't plan to use Stock Screening, skip this step entirely.**
-
-**1) Apply**: register and sign in at <https://tushare.pro/> → "Profile → API TOKEN" → copy your token
-
-**2) Put it in one file**: `tushare_client.py` in the project root
-
-```python
-# tushare_client.py
-PRIMARY_TOKEN = "YOUR_TUSHARE_TOKEN"     # ← replace with your real token
-BACKUP_TOKENS = [
-    # Optional: other accounts' tokens; used automatically when the primary hits a rate limit
-]
-```
-
-> 💡 **Why a single file**: tokens are managed centrally in `tushare_client.py`; the screening scripts call
-> the API through `TusharePool` instead of hard-coding tokens. A rate-limited call is retried with the next
-> token, and only falls back when every token is limited. You can also override by environment variable
-> without editing the file:
->
-> ```bash
-> export GP_TUSHARE_TOKENS="primary,backup"
-> ```
-
-**3) Mind the Tushare points system**: the whole-market daily endpoint (`pro.daily()`) requires **120+ points**.
-New accounts don't have enough by default and will see a permission error — complete the points tasks on the
-Tushare website first.
-
-> ⚠️ **Security note**: `tushare_client.py` **is tracked by git**. If you commit your changes back to a public
-> repository, change the token back to `YOUR_TUSHARE_TOKEN` first, or inject it via the
-> `GP_TUSHARE_TOKENS` environment variable. See [Security Notes](#-security-notes).
-
----
-
-### Step 9: Create the data directories
-
-The program does not create these automatically — **you must create them manually**:
-
-```bash
-mkdir -p data log
-```
-
-- `data/` — all market data, analysis reports and charts live here
-- `log/` — runtime logs
-
----
-
-### Step 10: Start the web interface
-
-```bash
-python web_ui.py
-```
-
-You'll know it worked when you see:
-
-```
- * Running on http://0.0.0.0:8081
-```
-
-**Open your browser at <http://localhost:8081>**
-
-> ⚠️ The port is **8081**, and it is **hard-coded on the last line of `web_ui.py` — there is no command-line
-> flag to change it**. If 8081 is taken, edit the `port=8081` value on that line directly.
-
----
-
-### Step 11: Start using it
-
-> 💡 **The features in the interface are independent of one another — there is no required order.**
-> Apart from the one marked "⚠️ first-time setup required", everything works as soon as you open it.
-> They're grouped below by purpose.
-
-#### 🔍 Analysing a single stock
-
-Two entry points with different purposes:
-
-| Feature | Purpose | Time | Notes |
-|:---|:---|:---|:---|
-| **Full Analysis** | First evaluation of a new stock | 3–5 min | Collects everything → five dimensions → two-layer decision → full trading plan |
-| **Quick Analysis** | Daily post-close review | ~30 sec | Updates candles automatically, then **technical only**; pick a short/medium/long lens |
-
-**How**: click **Full Analysis** or **Quick Analysis** → enter the 6-digit code (e.g. `300433`) → start.
-Results show up under **Report Viewer**.
-
-> 💡 **For a new stock, run Full Analysis once first** — it builds the complete dataset for that stock.
-> After that, Quick Analysis is enough for daily monitoring.
-
-#### 🏢 Sector Analysis ⚠️ first-time setup required
-
-**You must do this once before the feature is usable**, otherwise the sector dropdown will be empty:
-
-Click **Sector Analysis** → find **Update Sector Data** → click it → wait for it to finish (~1–2 min).
-
-After that you can pick a sector type (broad index / industry / concept / Hong Kong) for AI deep analysis,
-which takes ~2–3 min.
-
-#### 🎯 Stock Screening — a completely independent feature
-
-**It has nothing to do with the per-stock analysis above.** It's a standalone whole-market pipeline:
-
-```
-Whole-market daily (5,500+ stocks) → merge basic metrics → multi-condition filter → per-stock backtest → final holdings
-```
-
-**Prerequisite**: you've completed Step 8 (Tushare token).
-
-**How**: click **Stock Screening** → tick your filter criteria → run. Takes ~3–5 min.
-
-#### ⭐ Watchlist (optional enhancement)
-
-Maintains a list of stocks you follow. **It's an optional convenience, not a prerequisite for anything else**:
-once populated, backtests and analyses **prefer stocks from this list**, saving you from retyping codes.
-
-Click **Watchlist** to add or remove — effective immediately.
-
-#### 💰 Trade Records (worth filling in)
-
-Record your actual trades. **This directly improves the quality of the AI's advice**: the second decision layer
-reads your cost basis and gives advice grounded in your **real P&L** ("you're down 27% — cut or add?"),
-rather than abstract fundamentals.
-
-Click **Trade Records** → pick date / type / price / shares → add (the date defaults to today).
-
-#### 📊 Strategy Backtest
-
-**How**: click **Strategy Backtest** → choose a mode (full flow / quick backtest) → decide whether to use the
-simplified strategy → start. Takes ~1–2 min.
-
-When it finishes you'll see the **monitoring report** and per-stock backtest charts (click a card to view).
-
-#### 🗂 Report Viewer
-
-Browse every analysis report generated so far, organised by stock. You need at least one report for it to show
-anything.
-
-#### 🛠 Detailed Mode / Single Function
-
-| Feature | Purpose |
-|:---|:---|
-| **Detailed Mode** | Inspect raw data and intermediate results for a single stock |
-| **Single Function** | Run one specific script on its own — useful for troubleshooting |
-
----
-
-**Time estimates at a glance:**
-
-| Feature | Time |
-|:---|:---|
-| Full Analysis | 3–5 min |
-| Quick Analysis | ~30 sec |
-| Sector Analysis | 2–3 min (plus 1–2 min first-time data collection) |
-| Stock Screening | 3–5 min |
-| Strategy Backtest | 1–2 min |
-| Watchlist / Trade Records / Report Viewer | Instant |
-
----
-
-### Step 12: Command-line data initialisation (optional)
-
-If you'd rather prepare data from the CLI before opening the UI:
-
-```bash
-# Fetch and update daily data (quotes / capital flow / margin / valuation / indicators)
-python check_data_updates.py --mode daily --ticker 300433.SZ
-
-# Fetch low-frequency data (company info / financials / shareholders / northbound)
-python check_data_updates.py --mode periodic --ticker 300433.SZ
-
-# Sector data
-python sector_data_collector.py --type broad_index
-python sector_data_collector.py --type industry --top 30
-```
-
-Omitting `--ticker` processes every stock in `STOCK_TICKERS` from `config.py`.
-
----
-
-## 📁 Which File Holds What (Quick Reference)
-
-After deployment you only need to care about these files:
-
-| File | Where it comes from | What you change | Required? |
-|:---|:---|:---|:---:|
-| **`config.py`** | Copy from `config.example.py` | ① `STOCK_TICKERS` — your stock codes<br>② `AI_CONFIG.model` — your model name | ✅ **Yes** |
-| **`trading_records.py`** | Copy from `trading_records.example.py` | Your real trades, in the documented format | Recommended |
-| **`tushare_client.py`** | Ships with the repo | `PRIMARY_TOKEN` (optional `BACKUP_TOKENS`) | Stock screening only |
-| **`watchlist.py`** | Ships with the repo | Your watchlist (easier via the Web UI) | No |
-| `data/`, `log/` | Create manually | — | ✅ **Yes** |
-
-**Other tunable parameters** (all in `config.py`; defaults work fine):
-
-| Config block | Purpose |
-|:---|:---|
-| `HISTORY_DATE_RANGE` | Restrict the date range of historical data for a given stock (full history by default) |
-| `TECHNICAL_INDICATORS` | Indicator periods (MA / RSI / MACD / KDJ, etc.) |
-| `STRATEGY_CONFIG` | Backtest parameters (initial capital, buy/sell thresholds) |
-| `STRATEGY_PROMPTS` | The prompt templates for the four strategy lenses — tune to taste |
-
-> 📌 **`config.py` and `trading_records.py` contain your personal holdings. Both are listed in `.gitignore`
-> and will not be committed.**
-
----
-
-## 🔧 Troubleshooting
-
-### Q1: `pip install TA-Lib` fails, complaining it can't find `ta_lib.h`
-
-**Cause**: you installed the Python package without the underlying C library.
-
-**Fix**: go back to [Step 3](#step-3-install-the-ta-lib-system-library-the-usual-sticking-point), install the
-system library first, then `pip install TA-Lib==0.6.8`.
-
----
-
-### Q2: Startup fails with `ModuleNotFoundError: No module named 'flask'`
-
-**Cause**: older versions of `requirements.txt` omitted `flask` (**fixed in the current version**).
-
-**Fix**:
-
-```bash
-pip install flask
-```
-
----
-
-### Q3: Installation fails on Python 3.13 (numpy compilation errors)
-
-**Cause**: `numpy==1.26.3` does not support Python 3.13.
-
-**Fix**: switch to Python 3.9 – 3.12, or change the pin to `numpy>=2.1` and reinstall (not thoroughly tested).
-
----
-
-### Q4: The browser can't open the page / the port isn't reachable
-
-1. The port is **8081** — go to <http://localhost:8081>
-2. Check what's using it: `lsof -i :8081` (Windows: `netstat -ano | findstr :8081`)
-3. To change the port, edit the last line of `web_ui.py`
-
----
-
-### Q5: AI analysis keeps failing or timing out
-
-1. Is Ollama running? `ollama list` — if it errors, run `ollama serve` first
-2. Does `AI_CONFIG.model` in `config.py` **exactly** match the model you pulled? (most common cause)
-3. Model too large and too slow? Try a smaller one, e.g. `qwen3:8b`
-4. The first load of a model takes time — give it a moment
-
----
-
-### Q6: The sector list on the Sector Analysis page is empty
-
-**Cause**: sector data hasn't been collected yet; first-time initialisation is required.
-
-**Fix**: click **Sector Analysis → Update Sector Data** in the UI, or run:
-
-```bash
-python sector_data_collector.py --type broad_index
-python sector_data_collector.py --type industry --top 30
-```
-
----
-
-### Q7: Stock screening reports insufficient Tushare permissions
-
-**Cause**: `pro.daily()` requires **120+ points**; new accounts don't have enough by default.
-
-**Fix**: complete the points tasks or upgrade at <https://tushare.pro/>; also confirm the token is set in
-**both** files.
-
----
-
-### Q8: Network errors / timeouts when fetching data
-
-1. Check you can reach Eastmoney and Sina Finance
-2. **Turn off any system proxy or VPN** (the code actively clears proxy environment variables, but a global
-   proxy can still interfere)
-3. Upgrade akshare: `pip install --upgrade akshare`
-4. Retry later — these endpoints are rate-limited
-
----
-
-### Q9: `config.py` is missing
-
-**Cause**: for privacy reasons, `config.py` and `trading_records.py` are not shipped in the repository.
-
-**Fix**: see [Step 6](#step-6-create-the-config-file-configpy-) and
-[Step 7](#step-7-create-trading_recordspy-optional-but-strongly-recommended) to copy the templates.
-
----
-
-## ⚠️ Security Notes
-
-### 🔴 Read before deploying
-
-**1) `web_ui.py` runs Flask in debug mode bound to `0.0.0.0`**
-
-The current version uses `app.run(host='0.0.0.0', port=8081, debug=True)`, which means:
-
-- `debug=True` enables the Werkzeug debugger, exposing an **interactive console that can execute arbitrary code**
-  on error pages
-- `host='0.0.0.0'` binds to **all network interfaces** — other devices on your LAN can reach it
-
-**⚠️ Do not run this on the public internet or on an untrusted network.** For long-running use, change it to:
-
-```python
-# last line of web_ui.py
-app.run(host='127.0.0.1', port=8081, debug=False)   # localhost only, debugger off
-```
-
-**2) Never commit your Tushare token**
-
-`tushare_client.py` **is tracked by git** (tokens were moved out of the individual scripts).
-Once you put a real token in it and `git commit`, the token is permanently in the commit history.
-
-- Always change it back to `"YOUR_TUSHARE_TOKEN"` and clear the backup list before committing
-- Better still, override it with an environment variable and leave the file untouched:
-
-```bash
-export GP_TUSHARE_TOKENS="primary,backup"
-```
-
-- If you have already committed it, **reset the token** on the Tushare website immediately
-
-**3) `config.py` and `trading_records.py` hold personal portfolio data**
-
-Both are in `.gitignore` — **do not remove them from it, and do not commit them manually**.
-
-**4) The `data/` directory holds all analysis results and position decisions**
-
-Also in `.gitignore`. Before sharing or packaging the project, consider clearing it:
-
-```bash
-rm -rf data/*      # ⚠️ deletes every generated report and chart
-```
-
-### 🟢 Privacy by design
-
-Worth calling out: **all AI inference happens locally in Ollama**, market data comes from public financial
-endpoints, and **your positions and analysis results are never uploaded to any third-party AI service**.
-
-### Other recommendations
-
-1. Don't expose the service port on a public network
-2. Update dependencies periodically: `pip install -r requirements.txt --upgrade`
-3. Restrict the data directory to your own user: `chmod 700 data`
-
----
-
-## 💻 Command-Line Cheatsheet
-
-```bash
-# Start the web interface
+# Start Web Server (binds safely to http://127.0.0.1:3130, auto-falls back if busy)
 python web_ui.py
 
-# Data updates
-python check_data_updates.py --mode daily    --ticker 300433.SZ   # daily data
-python check_data_updates.py --mode periodic --ticker 300433.SZ   # low-frequency data
-
-# Batch analysis
-python batch_analyze.py --mode daily    --ticker 300433.SZ   # daily dimensions (6 steps)
-python batch_analyze.py --mode periodic --ticker 300433.SZ   # low-frequency dimensions (3 steps)
-python batch_analyze.py --mode all      --ticker 300433.SZ   # full pipeline (14 steps)
-
-# Technical trend analysis (switchable strategy lens)
-python analyze_technical_trend.py --strategy trend_following --ticker 300433.SZ
-python analyze_technical_trend.py --strategy swing           --ticker 300433.SZ
-
-# Sector analysis
-python sector_data_collector.py --type broad_index            # collect broad index data
-python sector_data_collector.py --type industry --top 30      # collect industry sectors
-python analyze_sector.py --mode single --sector BK0477        # single-sector deep dive
-python analyze_sector.py --mode broad                         # whole-market overview
-
-# Stock screening (4-step pipeline; fill in the Tushare token first)
-python stocks_filter/step1_daily.py           # 1. whole-market daily data
-python stocks_filter/step2_daily_basic.py     # 2. merge basic metrics (wait ~1h after step 1)
-python stocks_filter/step3_filter.py          # 3. multi-condition filter
-python stocks_filter/batch_backtest_filter.py # 4. batch backtest → final_holdings.csv
+# Or launch native desktop window (optional: pip install pywebview pystray)
+python floe_app.py
 ```
 
-Omitting `--ticker` makes batch commands process every stock in `STOCK_TICKERS` from `config.py`.
+On first launch, missing `config.py`, `data/`, and `log/` are initialized automatically. Open **`http://127.0.0.1:3130`** and configure your **DeepSeek / OpenAI API Key** (or local Ollama) and **Tushare Pro Token** (120+ points required for `01 Market Screener`) directly inside **⚙️ Settings → AI & Data Sources**.
 
-> For the full module and API reference, see [Introduction.md](Introduction.md).
+---
+
+## 🔒 Security & Privacy Architecture
+
+1. **Loopback-Only Binding by Default**: `web_ui.py` and the desktop runtime bind strictly to `127.0.0.1:3130` with `debug=False`, preventing LAN exposure and disabling interactive debuggers.
+2. **Git-Safe Local Credentials**: API keys, Tushare tokens, watchlists, and trading ledgers configured via the UI are stored locally outside Git tracking; `.zip` backup restores validate Python files via strict AST literal parsing (`ast.literal_eval`) with zero `exec` risk.
+3. **Least-Privilege Footprint**: Floe never requests camera, microphone, contacts, location, or accessibility permissions.
 
 ---
 
 ## 📮 Feedback & Contact
 
-Found a bug, ran into a problem, or have a suggestion? Email me directly:
+Bug reports, feature ideas, and pull requests are warmly welcome:
 
-**📧 [luxy20061016@gmail.com](mailto:luxy20061016@gmail.com)**
-
-To help me diagnose faster, please include:
-
-- OS and Python version (e.g. macOS 14 / Python 3.10.15)
-- Which feature failed (screening / backtest / analysis / sector …) and a screenshot of the page message
-- The last ~20 lines of the terminal error, if any
-- The name of the generated log/status file under `data/`
-
-> This is a personally maintained open-source project; I reply as time allows. You can also open a [GitHub Issue](https://github.com/Leo-luxy/GP_ANA/issues).
+- **📧 Maintainer Email**: **[luleo856@gmail.com](mailto:luleo856@gmail.com)**
+- **🐙 GitHub Issues**: **[https://github.com/Leo-luxy/Floe/issues](https://github.com/Leo-luxy/Floe/issues)**
 
 ---
-## 📄 Version History
+
+## 📄 Release History
 
 | Version | Date | Highlights |
-|------|------|---------|
-| **v1.6.0** | 2026-11 | Whole-batch trading-day freezing and per-day result archive for screening; backtest artifact identity (params, source snapshot, content hash); observable failures with degraded/void states; primary/backup Tushare token rotation; single source of strategy parameters; 296 regression tests |
-| **v1.5.0** | 2026-09 | Documentation restructured into README + Introduction; backtest page now shows the latest report; task status persistence; dependency list corrected; redundant scripts removed |
-| **v1.4.0** | 2026-06 | Whole-market screening + watchlist management; KDJ and sector data-freshness fixes; backtest enhancements (watchlist + company names); timeout control |
-| **v1.3.0** | 2026-06 | Sector analysis: four sector types with AI analysis; Sina Finance data source; sector API |
-| **v1.2.0** | 2026-05 | Architecture refactor: unified entry point, Process/ engine, two-layer decision, quick analysis, backtest system |
-| v1.1.0 | 2026-03 | 41 modules: web interface, 12 new collectors, 5 new analysis engines |
-| v1.0.1 | 2026-02 | 18 modules: data collection + basic analysis |
+|:---|:---|:---|
+| **v2.0.0** | 2026-11 | **Rebranded to Floe**; modern 3-step workbench UI; cross-platform desktop app (macOS/Windows/Linux) + Homebrew & npm distribution; 2-step verified Cloud LLM API (DeepSeek/OpenAI) + Ollama dual engine; 3-decimal (`0.001`) FIFO trading ledger; tracked local selection performance; dual bull/bear penguin icons, Chinese/English UI & English AI reports, auto port fallback (`3130`), 1-click ZIP backup; 309 unit tests |
+| **v1.6.0** | 2026-11 | Unified batch trade-date snapshot & daily archiving, cryptographic backtest/indicator provenance, observable degraded/void states, Tushare primary/backup token failover |
+| **v1.5.0** | 2026-09 | Two-book documentation (`README` + `Introduction`), real-date report sorting, persistent task cache |
+| **v1.4.0** | 2026-06 | Full-market screener + watchlist, standard 9-day EMA KDJ & sector freshness alignment |
+| **v1.3.0** | 2026-06 | Sector & broad-index AI research module |
+| **v1.2.0** | 2026-05 | 5-dimension `Process/` engine, 2-layer conflict decision architecture, quick analysis & trend backtester |
+| **v1.1.0** | 2026-03 | Initial Flask Web UI, 12 collectors, 5 analyzers |
+| **v1.0.1** | 2026-02 | Initial data collection & technical analysis scripts |
 
-See [CHANGELOG.md](CHANGELOG.md) for details.
-
----
-
-## 👥 Contributors
-
-| Role | Member |
-|:---|:---|
-| Author / Maintainer | **[Leo-luxy](https://github.com/Leo-luxy)** — requirements, strategy and engineering, data validation |
-| Development support | **dsh** (DeepSeek Harness) — code review, test hardening and documentation |
-
-If you have used this project, made suggestions, or reported problems, email me and I will add you here.
-
----
-## 📚 Related Documents
-
-| Document | Description |
-|:---|:---|
-| [**Introduction.md**](Introduction.md) | **Technical deep dive** — architecture, five-dimensional decision algorithms, module reference, data dictionary, API reference, design decisions |
-| [CHANGELOG.md](CHANGELOG.md) | Version history |
-| [README.md](README.md) | Chinese documentation (主文档) |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | Contribution guide |
-| [SECURITY.md](SECURITY.md) | Security policy |
-| [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | Code of conduct |
+See **[CHANGELOG.md](CHANGELOG.md)** for full release notes.
 
 ---
 
-## 📜 License
+## 📜 License & Disclaimer
 
-Released under the [MIT License](LICENSE).
+Licensed under the **[MIT License](LICENSE)**.
 
----
-
-## ⚖️ Disclaimer
-
-This project is a **technical learning and research tool**. None of its AI analysis, trading suggestions or
-backtest results **constitute investment advice**. Markets carry risk; invest carefully. Any investment decisions
-and their consequences remain solely your own responsibility.
-
----
+**⚖️ Disclaimer**: Floe is a software tool for quantitative research and technical learning only. Nothing generated by this software—including stock screening lists, backtest metrics, AI research reports, or trading plans—constitutes financial or investment advice. Investing in equity markets involves substantial risk; users assume full responsibility for their own investment decisions.
 
 <p align="center">
-  <sub>Made with ❤️ for quantitative investors</sub>
+  <sub>Made with ❤️ for A-Share quantitative investors · <b>Floe v2.0.0</b></sub>
 </p>
