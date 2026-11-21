@@ -20,6 +20,13 @@ from datetime import date, datetime, timedelta
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from config import DATA_DIR, STOCK_TICKERS
+try:
+    from net_guard import apply_collector_socket_timeout, ensure_network_ready
+    ensure_network_ready()
+except Exception:
+    apply_collector_socket_timeout = None
+
+import data_hub
 
 class DateEncoder(json.JSONEncoder):
     """自定义JSON编码器，处理日期对象"""
@@ -68,9 +75,7 @@ def get_stock_financial_indicators(ticker):
     # 1. 获取现金流量表
     print("获取现金流量表...")
     try:
-        time.sleep(random.uniform(2, 4))  # 随机间隔2-4秒
-        stock_symbol_sina = f"{market}{code}"
-        cash_flow_df = ak.stock_financial_report_sina(stock=stock_symbol_sina, symbol="现金流量表")
+        cash_flow_df = data_hub.fetch("stock_financial_report", ticker=ticker, report_type="现金流量表")
         if not cash_flow_df.empty:
             # 只保留最近12组数据
             cash_flow_data = cash_flow_df.to_dict('records')[:12]
@@ -81,9 +86,7 @@ def get_stock_financial_indicators(ticker):
     # 2. 获取利润表并计算毛利率、净利率
     print("获取利润表...")
     try:
-        time.sleep(random.uniform(2, 4))  # 随机间隔2-4秒
-        stock_symbol_sina = f"{market}{code}"
-        profit_df = ak.stock_financial_report_sina(stock=stock_symbol_sina, symbol="利润表")
+        profit_df = data_hub.fetch("stock_financial_report", ticker=ticker, report_type="利润表")
         if not profit_df.empty:
             # 计算毛利率和净利率
             if '营业收入' in profit_df.columns and '营业成本' in profit_df.columns:
@@ -121,9 +124,7 @@ def get_stock_financial_indicators(ticker):
     # 3. 获取资产负债表并计算资产负债率
     print("获取资产负债表...")
     try:
-        time.sleep(random.uniform(2, 4))  # 随机间隔2-4秒
-        stock_symbol_sina = f"{market}{code}"
-        balance_df = ak.stock_financial_report_sina(stock=stock_symbol_sina, symbol="资产负债表")
+        balance_df = data_hub.fetch("stock_financial_report", ticker=ticker, report_type="资产负债表")
         if not balance_df.empty:
             # 计算资产负债率
             if '资产总计' in balance_df.columns and '负债合计' in balance_df.columns:
@@ -236,15 +237,14 @@ def get_stock_financial_indicators(ticker):
     # 6. 获取财务分析指标
     print("获取财务分析指标...")
     try:
-        time.sleep(random.uniform(2, 4))  # 随机间隔2-4秒
-        financial_analysis_df = ak.stock_financial_analysis_indicator(symbol=code)
+        financial_analysis_df = data_hub.fetch("stock_financial_indicator", ticker=code)
         if not financial_analysis_df.empty:
             financial_indicators['financial_analysis'] = financial_analysis_df.to_dict('records')[0]
             print("成功获取财务分析指标")
         else:
             # 尝试使用stock_financial_abstract获取财务摘要
             print("尝试获取财务摘要...")
-            financial_abstract_df = ak.stock_financial_abstract(symbol=code)
+            financial_abstract_df = data_hub.fetch("stock_financial_abstract", ticker=code)
             if not financial_abstract_df.empty:
                 # 保存所有财务摘要数据，而不仅仅是第一行
                 financial_indicators['financial_analysis'] = financial_abstract_df.to_dict('records')

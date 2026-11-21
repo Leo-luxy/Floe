@@ -6,25 +6,6 @@
 
 import os
 import sys
-
-# ===== 绕过不可用的系统代理 =====
-# macOS 系统代理设置为 127.0.0.1:6789，但代理服务未运行时会阻断所有 outbound 请求。
-# 必须在使用 requests/akshare 之前，强制禁用代理。
-def _disable_system_proxy():
-    """移除系统代理配置，避免因本地代理不可用导致请求失败"""
-    # 清除代理相关环境变量
-    for key in ('http_proxy', 'https_proxy', 'HTTP_PROXY', 'HTTPS_PROXY',
-                'all_proxy', 'ALL_PROXY'):
-        os.environ.pop(key, None)
-    # 通知 urllib 不使用系统代理
-    try:
-        import urllib.request
-        urllib.request.getproxies = lambda: {}
-    except Exception:
-        pass
-
-_disable_system_proxy()
-
 import json
 import time
 import argparse
@@ -32,7 +13,15 @@ import pandas as pd
 from datetime import datetime
 
 # 添加项目根目录到Python路径
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+try:
+    from net_guard import apply_collector_socket_timeout, ensure_network_ready
+    ensure_network_ready()
+except Exception:
+    apply_collector_socket_timeout = None
+
+import data_hub
 
 try:
     import akshare as ak
@@ -133,32 +122,23 @@ class SectorDataCollector:
             source = 'unknown'
             df = None
 
-            # ---- 数据源1：新浪财经 (主力) ----
-            index_symbol = symbol  # sh000001 等格式，Sina 可直接使用
+            # ---- 数据源1/2：统一经由 data_hub 路由（新浪财经为主，东方财富自动兜底）----
+            index_symbol = symbol
             print(f"  指数代码: {index_symbol}")
-            df = self._try_sina_index(index_symbol, start_date, end_date)
-            if df is not None:
-                source = 'sina'
-
-            # ---- 数据源2：东方财富 (兜底) ----
-            if df is None:
-                print(f"  新浪不可用，尝试东方财富...")
-                for em_start in ['20050101', '20100101', '20150101']:
-                    try:
-                        df = ak.stock_zh_index_daily_em(symbol=symbol, start_date=em_start, end_date=end_date)
-                        if df is not None and not df.empty:
-                            # 标准化东方财富列名
-                            col_map = {
-                                'date': 'date', 'open': 'open', 'high': 'high',
-                                'low': 'low', 'close': 'close', 'volume': 'volume',
-                                'amount': 'amount',
-                            }
-                            df = df.rename(columns={k: v for k, v in col_map.items() if k in df.columns})
-                            source = 'eastmoney'
-                            print(f"  ✓ 东方财富数据源获取成功 ({len(df)} 条)")
-                            break
-                    except Exception:
-                        continue
+            df, src_used = data_hub.fetch_with_source(
+                "broad_index_daily",
+                symbol=index_symbol,
+                start_date=start_date,
+                end_date=end_date,
+            )
+            source = src_used or "data_hub"
+            if df is not None and not df.empty:
+                col_map = {
+                    'date': 'date', 'open': 'open', 'high': 'high',
+                    'low': 'low', 'close': 'close', 'volume': 'volume',
+                    'amount': 'amount',
+                }
+                df = df.rename(columns={k: v for k, v in col_map.items() if k in df.columns})
 
             if df is None or df.empty:
                 print(f"  ✗ 所有数据源均无法获取数据")
@@ -266,7 +246,7 @@ class SectorDataCollector:
         print(f"{'='*60}")
 
         try:
-            df = ak.stock_hk_index_spot_em()
+            df = data_hub.fetch("hk_index_list")
             if df is None or df.empty:
                 print("  ✗ 未获取到港股指数列表")
                 return None
@@ -324,7 +304,7 @@ class SectorDataCollector:
         if df is None:
             print(f"  新浪不可用，尝试东方财富...")
             try:
-                df = ak.stock_hk_index_daily_em(symbol=symbol)
+                df = data_hub.fetch("hk_index_daily", symbol=symbol)
                 if df is not None and not df.empty:
                     # eastmoney 列名不同: latest→close
                     col_map = {'date': 'date', 'open': 'open', 'high': 'high',
@@ -442,7 +422,7 @@ class SectorDataCollector:
         print(f"{'='*60}")
 
         try:
-            df = ak.stock_board_industry_name_em()
+            df = data_hub.fetch("sector_board_list", board_type="industry")
             if df is None or df.empty:
                 print("  ✗ 未获取到行业板块列表")
                 return None
@@ -560,28 +540,12 @@ class SectorDataCollector:
         return True
 
     def _try_sina_index(self, index_symbol, start_date, end_date):
-        """尝试从新浪财经 API 获取指数日线数据
-
-        新浪财经是快速分析使用的数据源，稳定可靠。
-        支持 A股指数 (sh/sz前缀) 和 港股指数 (HSI/HSCEI等)。
-        """
+        """尝试从新浪财经 API 获取指数日线数据（经 data_hub 统一代理与超时控制）。"""
         try:
-            # 判断是港股指数还是 A 股指数
-            if index_symbol.startswith('hk_'):
-                # 港股指数: hk_HSI, hk_HSCEI 等
-                hk_code = index_symbol[3:]  # 去掉 hk_ 前缀
-                df = ak.stock_hk_index_daily_sina(symbol=hk_code)
-            else:
-                # A 股指数
-                df = ak.stock_zh_index_daily(symbol=index_symbol)
+            from data_hub.providers import sina as _sina_prov
 
+            df = _sina_prov.fetch_broad_index_daily(index_symbol, start_date, end_date)
             if df is not None and not df.empty:
-                # 过滤日期范围
-                if 'date' in df.columns:
-                    df['date'] = pd.to_datetime(df['date'])
-                    start_dt = pd.to_datetime(start_date)
-                    end_dt = pd.to_datetime(end_date)
-                    df = df[(df['date'] >= start_dt) & (df['date'] <= end_dt)]
                 print(f"  ✓ 新浪财经数据源获取成功 ({len(df)} 条)")
                 return df
         except Exception as e:
@@ -589,26 +553,20 @@ class SectorDataCollector:
         return None
 
     def _try_eastmoney_history(self, board_code, start_date, end_date):
-        """尝试从东方财富 API 获取行业板块历史日线（带重试）"""
-        max_retries = 2
-        for attempt in range(1, max_retries + 1):
-            try:
-                df = ak.stock_board_industry_hist_em(
-                    symbol=board_code,
-                    period="日k",
-                    start_date=start_date,
-                    end_date=end_date,
-                )
-                if df is not None and not df.empty:
-                    print(f"  ✓ 东方财富数据源获取成功")
-                    return df
-            except Exception as e:
-                if attempt < max_retries:
-                    wait = 2 ** attempt
-                    print(f"  ⚠ 东方财富第 {attempt} 次请求失败，{wait}s 后重试...")
-                    time.sleep(wait)
-                else:
-                    print(f"  ⚠ 东方财富 API 不可用 ({e})")
+        """尝试从东方财富 API 获取行业板块历史日线（经 data_hub 统一超时与代理护盾）。"""
+        try:
+            df = data_hub.fetch(
+                "sector_board_daily",
+                board_code=board_code,
+                start_date=start_date,
+                end_date=end_date,
+                board_type="industry",
+            )
+            if df is not None and not df.empty:
+                print(f"  ✓ 东方财富数据源获取成功")
+                return df
+        except Exception as e:
+            print(f"  ⚠ 东方财富 API 不可用 ({e})")
         return None
 
     # ===== 标准指数代码映射 =====
@@ -767,10 +725,8 @@ class SectorDataCollector:
 
         # 2. 如果名称本身就在 THS 体系中，直接使用
         try:
-            if board_type == 'industry':
-                ths_list = ak.stock_board_industry_name_ths()
-            else:
-                ths_list = ak.stock_board_concept_name_ths()
+            from data_hub.providers import ths as _ths_prov
+            ths_list = _ths_prov.fetch_board_list(board_type=board_type)
             ths_names = set(ths_list['name'].tolist())
             if em_name in ths_names:
                 return em_name
@@ -802,24 +758,14 @@ class SectorDataCollector:
             print(f"  映射: '{board_name}' → 同花顺 '{ths_name}'")
 
         try:
-            if board_type == 'industry':
-                df = ak.stock_board_industry_index_ths(
-                    symbol=ths_name,
-                    start_date=start_date,
-                    end_date=end_date,
-                )
-            else:
-                df = ak.stock_board_concept_index_ths(
-                    symbol=ths_name,
-                    start_date=start_date,
-                    end_date=end_date,
-                )
+            df = data_hub.fetch(
+                "sector_board_daily_ths",
+                board_name=ths_name,
+                start_date=start_date,
+                end_date=end_date,
+                board_type=board_type,
+            )
             if df is not None and not df.empty:
-                # 确保有 volume 列
-                if '成交量' not in df.columns and 'volume' not in df.columns:
-                    df['成交量'] = 1
-                if '成交额' not in df.columns and 'amount' not in df.columns:
-                    df['成交额'] = 0
                 print(f"  ✓ 同花顺数据源获取成功 ({len(df)} 条)")
                 return df
         except Exception as e:
@@ -837,7 +783,7 @@ class SectorDataCollector:
         """
         print(f"\n--- 采集成分股: {board_code} ---")
         try:
-            df = ak.stock_board_industry_cons_em(symbol=board_code)
+            df = data_hub.fetch("sector_board_constituents", board_code=board_code)
 
             if df is None or df.empty:
                 print(f"  ✗ 未获取到成分股数据")
@@ -911,7 +857,7 @@ class SectorDataCollector:
         print(f"{'='*60}")
 
         try:
-            df = ak.stock_board_concept_name_em()
+            df = data_hub.fetch("sector_board_list", board_type="concept")
             if df is None or df.empty:
                 print("  ✗ 未获取到概念板块列表")
                 return None
@@ -938,7 +884,7 @@ class SectorDataCollector:
         print(f"{'='*60}")
 
         try:
-            df = ak.stock_board_change_em()
+            df = data_hub.fetch("sector_board_changes")
             if df is None or df.empty:
                 print("  ✗ 未获取到板块异动数据")
                 return None
@@ -962,7 +908,7 @@ class SectorDataCollector:
         print(f"{'='*60}")
 
         try:
-            df = ak.stock_sector_fund_flow_rank()
+            df = data_hub.fetch("sector_fund_flow")
             if df is None or df.empty:
                 print("  ✗ 未获取到资金流向数据")
                 return None

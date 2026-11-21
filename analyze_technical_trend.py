@@ -353,7 +353,8 @@ class TechnicalTrendLLMAnalyzer:
             temperature = AI_CONFIG['temperature']
             max_tokens = AI_CONFIG['max_tokens']
             
-            print(f"正在请求本地Ollama AI ({model})...")
+            from user_settings import describe_ai_backend
+            print(f"正在请求 {describe_ai_backend(AI_CONFIG)}...")
             # 配置Ollama客户端使用localhost
             client = ollama.Client(host=AI_CONFIG['base_url'])
             
@@ -371,9 +372,10 @@ class TechnicalTrendLLMAnalyzer:
             
             return response['message']['content']
         except Exception as e:
-            print(f"调用本地Ollama AI时出错: {str(e)}")
-            # 返回默认分析结果
-            return "无法获取AI分析，请检查Ollama服务是否正常运行。"
+            from user_settings import describe_ai_backend, format_ai_error_hint
+            print(f"调用 {describe_ai_backend(AI_CONFIG)} 时出错: {str(e)}")
+            # 返回精准的 AI 错误说明
+            return format_ai_error_hint(AI_CONFIG, e)
     
     def save_analysis_to_md(self, analysis_content):
         """将分析结果保存为markdown文件"""

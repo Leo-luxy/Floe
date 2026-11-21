@@ -16,13 +16,12 @@ import sys
 import time
 from datetime import datetime
 import pandas as pd
-import py_mini_racer
 import requests
 
 # 网络代理守护：默认直连、不使用系统代理。否则系统代理（翻墙用）一旦没开，
 # 新浪财经的请求就会全部抛 ProxyError，抓取静默失败。
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-from net_guard import ensure_network_ready, retry_on_proxy_error
+from net_guard import ensure_network_ready, retry_on_proxy_error, apply_collector_socket_timeout
 
 ensure_network_ready()
 
@@ -38,6 +37,30 @@ from akshare.stock.cons import (
 )
 from akshare.utils import demjson
 from akshare.utils.tqdm import get_tqdm
+
+
+def _decode_sina_klc_payload(encoded_payload: str):
+    """调用现代 mini-racer 解密新浪 KLC 历史压缩串（延迟导入，防止顶层缺少动态库时直接退出码 1 崩溃）。"""
+    import py_mini_racer
+    js_code = py_mini_racer.MiniRacer()
+    js_code.eval(hk_js_decode)
+    return js_code.call("d", encoded_payload)
+
+
+def _fetch_qfq_fallback_no_v8(symbol: str, start_date: str, end_date: str) -> pd.DataFrame:
+    """当极少数精简版系统无法加载 V8 动态库时，回退纯 HTTP JSON 前复权通道（东财 -> 腾讯）。"""
+    from data_hub.providers import eastmoney, tencent
+
+    try:
+        df = eastmoney.fetch_stock_qfq_daily(symbol, start_date, end_date)
+        if df is not None and not df.empty:
+            return df
+    except Exception:
+        pass
+    return tencent.fetch_stock_qfq_daily(symbol, start_date, end_date)
+
+
+_ORIG_QFQ_FALLBACK_NO_V8 = _fetch_qfq_fallback_no_v8
 
 
 def _get_zh_a_page_count() -> int:
@@ -188,10 +211,8 @@ def stock_zh_a_daily(
         return _fq_factor(adjust.split("-")[0])
 
     r = requests.get(zh_sina_a_stock_hist_url.format(symbol))
-    js_code = py_mini_racer.MiniRacer()
-    js_code.eval(hk_js_decode)
-    dict_list = js_code.call(
-        "d", r.text.split("=")[1].split(";")[0].replace('"', "")
+    dict_list = _decode_sina_klc_payload(
+        r.text.split("=")[1].split(";")[0].replace('"', "")
     )  # 执行js解密代码
     data_df = pd.DataFrame(dict_list)
     data_df.index = pd.to_datetime(data_df["date"]).dt.date
@@ -358,10 +379,8 @@ def stock_zh_a_cdr_daily(
     :rtype: pandas.DataFrame
     """
     res = requests.get(zh_sina_a_stock_hist_url.format(symbol))
-    js_code = py_mini_racer.MiniRacer()
-    js_code.eval(hk_js_decode)
-    dict_list = js_code.call(
-        "d", res.text.split("=")[1].split(";")[0].replace('"', "")
+    dict_list = _decode_sina_klc_payload(
+        res.text.split("=")[1].split(";")[0].replace('"', "")
     )  # 执行js解密代码
     data_df = pd.DataFrame(dict_list)
     data_df.index = pd.to_datetime(data_df["date"])
@@ -512,8 +531,13 @@ EXIT_REBUILD_INVALID = 4
 QFQ_REQUIRED_COLUMNS = ("date", "open", "high", "low", "close", "volume", "amount")
 QFQ_NUMERIC_COLUMNS = ("open", "high", "low", "close", "volume", "amount")
 
-# 旧文件备份目录：backup/qfq/（backup/ 已在 .gitignore 中）
-BACKUP_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "backup", "qfq")
+# 旧文件备份目录：backup/qfq/（打包模式下自动重定向至用户可写目录，避免只读包目录报错）
+try:
+    import app_paths as _ap
+    _BACKUP_BASE = _ap.get_user_data_dir() if _ap.is_packaged_mode() else os.path.dirname(os.path.abspath(__file__))
+except Exception:
+    _BACKUP_BASE = os.path.dirname(os.path.abspath(__file__))
+BACKUP_DIR = os.path.join(_BACKUP_BASE, "backup", "qfq")
 
 
 def load_local_qfq(qfq_file):
@@ -669,14 +693,46 @@ def rebuild_start_date(local_df):
     return local_first if local_first < DEFAULT_START_DATE else DEFAULT_START_DATE
 
 
+_ORIG_STOCK_ZH_A_DAILY = stock_zh_a_daily
+
+
 def _fetch_qfq_history(stock_symbol, start_date, end_date):
-    """抓取一只股票指定区间的前复权行情（代理异常由 net_guard 切换直连后重试）"""
-    return retry_on_proxy_error(
-        stock_zh_a_daily,
+    """抓取一只股票指定区间的前复权行情（统一经由 data_hub 多源自动切换与熔断；保留单测注入钩子兼容）"""
+    if (
+        stock_zh_a_daily is not _ORIG_STOCK_ZH_A_DAILY
+        or _fetch_qfq_fallback_no_v8 is not _ORIG_QFQ_FALLBACK_NO_V8
+    ):
+        try:
+            return retry_on_proxy_error(
+                stock_zh_a_daily,
+                symbol=stock_symbol,
+                start_date=start_date,
+                end_date=end_date,
+                adjust="qfq",
+            )
+        except Exception as primary_exc:
+            err_str = f"{type(primary_exc).__name__}: {primary_exc}".lower()
+            if any(k in err_str for k in ("mini_racer", "miniracer", "libnotfound", "dll", "icudtl", "importerror", "modulenotfounderror")):
+                print(f"提示：检测到本机 V8 解密组件受限（{primary_exc}），自动切换纯 JSON 前复权备用通道抓取 {stock_symbol}")
+                return retry_on_proxy_error(
+                    _fetch_qfq_fallback_no_v8,
+                    symbol=stock_symbol,
+                    start_date=start_date,
+                    end_date=end_date,
+                )
+            raise
+
+    import data_hub
+
+    def _log_switch(src_name, nxt_name, exc):
+        print(f"提示：前复权主源 {src_name} 暂不可用（{exc}），自动切换备用数据源 {nxt_name} 抓取 {stock_symbol}")
+
+    return data_hub.fetch(
+        "stock_qfq_daily",
         symbol=stock_symbol,
         start_date=start_date,
         end_date=end_date,
-        adjust="qfq",
+        on_fallback=_log_switch,
     )
 
 
@@ -944,6 +1000,8 @@ def _summarize_exit_code(results, ticker_list, rebuild, single):
 
 
 def main(argv=None):
+    # 新浪行情相关请求均未传 timeout：对端不响应时限制单次等待，避免整步卡死
+    apply_collector_socket_timeout(25)
     parser = argparse.ArgumentParser(description="股票数据收集器")
     parser.add_argument('--ticker', help="股票代码，例如：600519.SH（上交所）、000001.SZ（深交所），默认处理所有股票")
     parser.add_argument('--rebuild', action='store_true', help="用统一前复权基准重建指定股票的完整历史（需配合 --ticker）")

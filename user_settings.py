@@ -222,43 +222,23 @@ def fetch_openai_compatible_models(api_base, api_key, timeout=10):
     raise last_err or RuntimeError('获取模型列表失败')
 
 
-def call_openai_compatible_chat(api_base, api_key, model, messages, options=None, timeout=180):
-    """调用 OpenAI 兼容格式（DeepSeek 等）的 Chat Completions 接口。"""
-    opts = options or {}
-    temperature = float(opts.get('temperature', 0.3))
-    max_tokens = int(opts.get('num_predict') or opts.get('max_tokens') or 4096)
-    max_tokens = max(128, min(max_tokens, 8192))
-
-    final_messages = _prepare_messages_for_language(messages)
-    payload = json.dumps({
-        'model': model or DEFAULT_API_MODEL,
-        'messages': final_messages,
-        'temperature': temperature,
-        'max_tokens': max_tokens,
-        'stream': False,
-    }).encode('utf-8')
-
-    headers = {
-        'Content-Type': 'application/json',
-        'Authorization': f'Bearer {api_key.strip()}',
-        'User-Agent': 'GP_ANA/1.6',
-    }
-
+def _post_openai_chat(endpoints, payload_dict, headers, timeout):
+    """向候选 Chat Completions 地址发起 POST，返回响应体及解析后的正文、思考链与结束原因。"""
+    payload_bytes = json.dumps(payload_dict).encode('utf-8')
     last_err = None
-    endpoints = _build_chat_endpoints(api_base)
     for idx, url in enumerate(endpoints):
-        req = urllib.request.Request(url, data=payload, headers=headers, method='POST')
+        req = urllib.request.Request(url, data=payload_bytes, headers=headers, method='POST')
         try:
             with _urlopen_cloud_api(req, timeout=timeout) as resp:
                 body = json.loads(resp.read().decode('utf-8', errors='replace'))
             choices = body.get('choices') or []
             if not choices:
                 raise RuntimeError(f'API 未返回 choices: {body}')
-            content = (choices[0].get('message') or {}).get('content') or ''
-            return _AttrDict({
-                'model': body.get('model', model),
-                'message': _AttrDict({'role': 'assistant', 'content': content}),
-            })
+            msg = choices[0].get('message') or {}
+            content = msg.get('content') or ''
+            reasoning_content = msg.get('reasoning_content') or ''
+            finish_reason = str(choices[0].get('finish_reason') or '')
+            return body, content, reasoning_content, finish_reason
         except urllib.error.HTTPError as exc:
             err_body = exc.read().decode('utf-8', errors='replace')[:300]
             last_err = RuntimeError(f'HTTP {exc.code}: {err_body}')
@@ -269,6 +249,85 @@ def call_openai_compatible_chat(api_base, api_key, model, messages, options=None
             last_err = exc
             raise
     raise last_err or RuntimeError('API 调用失败')
+
+
+def call_openai_compatible_chat(api_base, api_key, model, messages, options=None, timeout=300):
+    """调用 OpenAI 兼容格式（DeepSeek 等）的 Chat Completions 接口。"""
+    opts = options or {}
+    temperature = float(opts.get('temperature', 0.3))
+    raw_max = opts.get('num_predict') or opts.get('max_tokens')
+
+    final_messages = _prepare_messages_for_language(messages)
+    payload_dict = {
+        'model': model or DEFAULT_API_MODEL,
+        'messages': final_messages,
+        'temperature': temperature,
+        'stream': False,
+    }
+    if raw_max is not None:
+        try:
+            req_max = int(raw_max)
+        except (TypeError, ValueError):
+            req_max = None
+        # 仅在明确请求小输出（如连通性探活）时传 max_tokens，正常分析留空以适配思考链推理模型配额
+        if req_max is not None and req_max < 4096:
+            payload_dict['max_tokens'] = max(256, req_max)
+
+    headers = {
+        'Content-Type': 'application/json',
+        'Authorization': f'Bearer {api_key.strip()}',
+        'User-Agent': 'GP_ANA/1.6',
+    }
+
+    endpoints = _build_chat_endpoints(api_base)
+    requires_max_tokens = False
+    had_max_tokens = 'max_tokens' in payload_dict
+    used_payload = payload_dict
+    try:
+        body, content, reasoning_content, finish_reason = _post_openai_chat(
+            endpoints, used_payload, headers, timeout
+        )
+    except RuntimeError as exc:
+        # 兼容强制要求传入 max_tokens 参数的非标中转网关
+        if not had_max_tokens and str(exc).startswith('HTTP 400') and 'max_tokens' in str(exc).lower():
+            requires_max_tokens = True
+            used_payload = dict(payload_dict, max_tokens=8192)
+            body, content, reasoning_content, finish_reason = _post_openai_chat(
+                endpoints, used_payload, headers, timeout
+            )
+        else:
+            raise
+
+    # 若正文为空（常见于思考过程耗尽长度上限），自动自愈重试一次
+    if not str(content).strip():
+        retry_payload = dict(used_payload)
+        if not requires_max_tokens:
+            retry_payload.pop('max_tokens', None)
+        if not had_max_tokens or requires_max_tokens or (
+            finish_reason == 'length' and str(reasoning_content).strip()
+        ):
+            retry_payload['messages'] = list(final_messages) + [{
+                'role': 'user',
+                'content': '请精简中间计算与推理过程，控制思考篇幅，确保直接输出完整的结构化分析报告正文。',
+            }]
+        body, content, reasoning_content, finish_reason = _post_openai_chat(
+            endpoints, retry_payload, headers, timeout
+        )
+
+    if not str(content).strip():
+        use_model = model or DEFAULT_API_MODEL
+        if finish_reason == 'length' or str(reasoning_content).strip():
+            raise RuntimeError(
+                f'模型 {use_model} 思考过程耗尽了输出长度上限（finish_reason={finish_reason or "length"}），未产出正文内容'
+            )
+        raise RuntimeError(
+            f'模型 {use_model} 返回了空内容（finish_reason={finish_reason or "unknown"}）'
+        )
+
+    return _AttrDict({
+        'model': body.get('model', model),
+        'message': _AttrDict({'role': 'assistant', 'content': content}),
+    })
 
 
 def install_llm_bridge(ai_config):
@@ -320,6 +379,32 @@ def install_llm_bridge(ai_config):
             ollama.Client = _LocalizedOllamaClient
         else:
             ollama.Client = _ORIGINAL_OLLAMA_CLIENT
+
+
+def describe_ai_backend(ai_config=None):
+    """返回当前实际生效的大模型后端可读描述，避免云端 API 场景误打印本地 Ollama。"""
+    cfg = ai_config if isinstance(ai_config, dict) else {}
+    provider = str(cfg.get('provider') or 'ollama').strip().lower()
+    api_key = str(cfg.get('api_key') or '').strip()
+    if provider == 'api' and api_key:
+        api_base = str(cfg.get('api_base') or DEFAULT_API_BASE).strip()
+        model = str(cfg.get('api_model') or cfg.get('model') or DEFAULT_API_MODEL).strip()
+        return f"云端 API ({api_base} / {model})"
+    base_url = str(cfg.get('base_url') or cfg.get('ollama_base_url') or 'http://localhost:11434').strip()
+    model = str(cfg.get('model') or cfg.get('ollama_model') or '').strip()
+    return f"本地 Ollama ({base_url} / {model})" if model else f"本地 Ollama ({base_url})"
+
+
+def format_ai_error_hint(ai_config=None, exc=None):
+    """按实际生效的 AI 后端生成精确的失败提示文案，保留真实错误详情。"""
+    cfg = ai_config if isinstance(ai_config, dict) else {}
+    provider = str(cfg.get('provider') or 'ollama').strip().lower()
+    api_key = str(cfg.get('api_key') or '').strip()
+    err_part = f" 错误: {exc}" if exc is not None else ""
+    if provider == 'api' and api_key:
+        model = str(cfg.get('api_model') or cfg.get('model') or DEFAULT_API_MODEL).strip()
+        return f"无法获取AI分析，请检查云端 API 配置、模型名称与网络连通性（模型: {model}）。{err_part}".strip()
+    return f"无法获取AI分析，请检查本地 Ollama 服务是否正常运行。{err_part}".strip()
 
 
 def apply_ai_settings(ai_config, path=None):

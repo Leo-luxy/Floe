@@ -102,13 +102,9 @@ def detailed_function():
                         'output': '\n\n'.join(outputs)
                     })
                 elif data_type == 'industry':
-                    # 抓取同行对比数据，依次执行五个程序
+                    # 统一单进程抓取全部 5 类东财 F10 行业数据 + 申万行业数据
                     commands = [
-                        f'python eastmoney_fetcher.py --type market_performance --ticker {full_stock_code}',
-                        f'python eastmoney_fetcher.py --type industry_valuation --ticker {full_stock_code}',
-                        f'python eastmoney_fetcher.py --type industry_peers --ticker {full_stock_code}',
-                        f'python eastmoney_fetcher.py --type industry_growth --ticker {full_stock_code}',
-                        f'python eastmoney_fetcher.py --type dupont --ticker {full_stock_code}',
+                        f'python eastmoney_fetcher.py --type all --ticker {full_stock_code}',
                         f'python shenwan_industry_collector.py --ticker {full_stock_code}'
                     ]
                     # 依次执行命令

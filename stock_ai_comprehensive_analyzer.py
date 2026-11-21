@@ -142,36 +142,30 @@ class StockAIComprehensiveAnalyzer:
         return stock_info
     
     def get_realtime_stock_info(self):
-        """使用akshare获取实时股票信息"""
+        """经由 data_hub 统一获取实时股票信息（东财 -> 腾讯 -> 新浪自动降级）"""
         realtime_info = {}
-        
+
         try:
+            import data_hub
             print(f"正在获取{self.ticker}的实时数据...")
-            
-            # 转换股票代码格式为雪球格式
-            ticker = self.ticker
-            if ticker.endswith('.SZ'):
-                ticker = "SZ" + ticker.replace('.SZ', '')
-            elif ticker.endswith('.SS'):
-                ticker = "SH" + ticker.replace('.SS', '')
-            
-            # 使用akshare获取实时股票信息
-            df = ak.stock_individual_spot_xq(symbol=ticker)
-            
-            # 提取实时信息
-            if not df.empty:
-                # 提取所有字段
-                realtime_info = df.set_index('item')['value'].to_dict()
-                # 添加更新时间
-                realtime_info['update_time'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                print("成功获取实时股票信息")
-                print(f"实时信息: {realtime_info}")
+            quote = data_hub.fetch("stock_realtime_quote", ticker=self.ticker)
+            if isinstance(quote, dict) and (quote.get("name") or quote.get("price") is not None):
+                realtime_info = {
+                    '股票代码': quote.get('ticker', self.ticker),
+                    '股票简称': quote.get('name', ''),
+                    '现价': quote.get('price'),
+                    '昨收': quote.get('prev_close'),
+                    '涨跌额': quote.get('change'),
+                    '涨跌幅(%)': quote.get('pct_change'),
+                    '数据源': quote.get('source', ''),
+                    'update_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                }
+                print(f"成功获取实时股票信息（{realtime_info.get('数据源') or 'data_hub'}）")
             else:
                 print("未获取到实时股票信息")
-                
         except Exception as e:
             print(f"获取实时股票信息时出错: {str(e)}")
-        
+
         return realtime_info
     
     def get_company_details(self):
@@ -534,7 +528,8 @@ class StockAIComprehensiveAnalyzer:
             temperature = AI_CONFIG['temperature']
             max_tokens = AI_CONFIG['max_tokens']
             
-            print(f"正在请求本地Ollama AI ({model})...")
+            from user_settings import describe_ai_backend
+            print(f"正在请求 {describe_ai_backend(AI_CONFIG)}...")
             # 配置Ollama客户端使用localhost
             client = ollama.Client(host=AI_CONFIG['base_url'])
             
@@ -552,9 +547,10 @@ class StockAIComprehensiveAnalyzer:
             
             return response['message']['content']
         except Exception as e:
-            print(f"调用本地Ollama AI时出错: {str(e)}")
-            # 返回默认分析结果
-            return "无法获取AI分析，请检查Ollama服务是否正常运行。"
+            from user_settings import describe_ai_backend, format_ai_error_hint
+            print(f"调用 {describe_ai_backend(AI_CONFIG)} 时出错: {str(e)}")
+            # 返回精准的 AI 错误说明
+            return format_ai_error_hint(AI_CONFIG, e)
     
     def save_analysis_to_md(self, analysis_content):
         """将分析结果保存为markdown文件"""

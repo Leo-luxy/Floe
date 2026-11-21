@@ -18,9 +18,10 @@ import time
 
 # 网络代理守护：默认直连、不使用系统代理，必须在联网请求之前导入
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from net_guard import ensure_network_ready, retry_on_proxy_error, is_proxy_error
+from net_guard import ensure_network_ready, apply_collector_socket_timeout, retry_on_proxy_error, is_proxy_error
 
 ensure_network_ready()
+apply_collector_socket_timeout(25)
 
 # ==================== 配置 ====================
 # token 统一在项目根 tushare_client.py 配置（主 token + 备用 token，限流自动切换）

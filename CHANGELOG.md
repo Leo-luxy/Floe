@@ -1,3 +1,42 @@
+# v2.0.2 — 统一数据中心 `data_hub` · 全链路多源容灾 · 跨平台桌面与选股稳定性加固
+
+> 🛠️ 核心主题：**统一数据中心 `data_hub` 架构重构与跨平台桌面端（macOS / Windows / Linux）全链路选股、AI 研判、权限隔离及网络连通性加固**。
+
+---
+
+## 🆕 新增
+
+- **统一数据中心 `data_hub`（35 项能力路由 + 能力级源熔断 + 共享磁盘缓存）**：
+  - 将全项目 17 个数据采集、实时行情、全市场选股与板块入口全部收口至 `data_hub`，统一由 6 大底层适配器（`eastmoney` / `tencent` / `sina` / `ths` / `exchange` / `tushare`）按优先级链调度，内置 `UnifiedTransport`（18s HTTP / 25s 全局 socket 超时、`net_guard` 协同护盾、拟真浏览器头）。
+  - **能力级 `SourceCircuitBreaker`**：单个子接口连续失败 3 次后进入 120s 冷却自动跳过并切换备选源，且按能力粒度隔离，避免冷门接口故障误伤同源核心行情通道。
+  - **`market_cache` 原子级共享磁盘缓存**：对历史分红（`6h`）、东财盈利预测（`6h`）、板块列表与成分股（`1h~6h`）、申万一/二/三级分类（`7d`）及三大财务报表（`600s`）启用原子缓存，消除多股分析时重复下载全市场大表与 `stock_company_info_collector` / `financial_indicators_collector` 双份重拉。
+- **全链路多源降级与单股极速采集**：
+  - **融资融券**：`batch_margin_collector.py` 优先使用东财单股直查（`0.2s` 返回 9 列完整历史，非两融标的自动记录 7 天 `_margin_na.json` 跳过标记），失败时仅按股票所属单一交易所按日回溯，彻底消除五维分析第 6 步卡顿。
+  - **前复权与行情/基本面**：前复权日线支持「新浪 → 东财 → 腾讯纯 JSON 分片 → Tushare」4 级自动切换；估值支持「东财 → 乐咕」；主股东支持「新浪 → 东财 F10」；资金流支持「akshare → 东财 `push2his` 直连」；板块列表/日线支持「东财 → 同花顺」；机构持股 `org_hold_collector.py` 动态探测最新可用报告期并移除硬编码相对路径。
+  - **分析子进程合并**：五维完整分析与详细面板将 5 次串行 `eastmoney_fetcher.py` 子进程合并为单次 `--type all`。
+
+---
+
+## 🐛 修复
+
+- **选股 `step2` 免费 Tushare 账号同日全集自动补齐**：积分不足或频次受限时自动经公开批量行情网关（约 `0.5s`）补齐同日基础指标，并严格校验 `trade_date` 与 100% 沪深代码覆盖。
+- **选股日志保留与失败状态收敛**：修复 `api/stock_selection.py` 子进程输出脱离与失败后状态框残留；支持失败原因实时展示。
+- **打包态只读应用包路径隔离**：修复 `Process/` 决策模块、`shenwan_config/`、`api/common.py` 与 `data_collector.py` 读取或写入包内相对路径的问题，全部收归用户可写数据目录。
+- **防后台子进程弹窗重启与静默执行**：冻结态统一走 `--run-script` + `FLOE_SUBPROCESS=1` 防嵌套 GUI 守卫，Windows 启用 `CREATE_NO_WINDOW` 与 UTF-8 管道编码。
+- **修复 `mini-racer` 依赖冲突与无 V8 兜底**：`requirements.txt` 与打包工作流由 `py_mini_racer` 修正为 `mini-racer>=0.12.4`，并支持无 V8 时无感切换纯 JSON 前复权通道。
+- **日更超限防挂起**：全采集脚本启用 25s socket 超时与 240s 命令树超时终止（Windows 使用 `taskkill /F /T`），实时透传子进程进度。
+- **修复云端 DeepSeek API 长响应 3 秒误杀超时与误报检查 Ollama**：修复本机存在存活代理端口时 `net_guard.urlopen_with_optional_proxy` 将大模型 `180s` 对话超时误截断为 `3s` 及 HTTPS 显式隧道协议错误；全量分析器按实际后端动态打印日志与精准错误提示，不再在云端 API 模式下误报「请检查Ollama服务」。
+- **修复推理模型思考链耗尽 `max_tokens=8192` 导致分析报告为空**：`call_openai_compatible_chat` 不再对常规研报分析强行截断 `max_tokens=8192`（留空以适配 `deepseek-flash` 等带思考链推理模型的原生输出配额，并兼容强制要求 `max_tokens` 网关的 HTTP 400 回退），新增思考超限空正文自愈重试与显式报错兜底，同步修复估值分析未读取 `_company_basic.json` 与两层决策空仓时当前价显示 `0.00` 等问题。
+- **修复股东/机构/北向季度数据被按 5 交易日误判过期**：`shareholder_num`、`shareholder`、`institutional`、`north_holdings` 改按报告季度（`kind='quarter'`, 滞后 0 季度）核验，最新季报与季中户数披露不再误判失效；综合分析实时股价接入 `data_hub`，申万成分上游列数漂移时温和降级。
+
+---
+
+## ✅ 质量
+
+- 回归单元测试扩充至 **338 项**（全部通过），新增 `tests/test_data_hub.py`、`tests/test_daily_update_stall.py` 与云端 API 长超时/思考链配额防截断专项校验。
+
+---
+
 # v2.0.1 — 桌面安装包 HTTPS 证书链修复 · 境外检查更新局部代理回退 · Windows 便携回退
 
 > 🛠️ 核心主题：**跨平台桌面安装包开箱即用连通性与权限容错补强**。解决云端构建桌面包在用户设备上丢失 OpenSSL 默认根证书路径导致的 HTTPS 报错，并完善受限网络与受控目录环境下的零配置启动体验。

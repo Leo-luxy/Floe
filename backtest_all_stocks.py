@@ -50,6 +50,11 @@ class MonitorDataError(RuntimeError):
 def get_all_stocks():
     """从关注列表获取股票代码"""
     try:
+        import importlib
+        import sys
+        wl_mod = sys.modules.get('watchlist')
+        if wl_mod is not None and getattr(wl_mod, '__file__', None):
+            importlib.reload(wl_mod)
         from watchlist import WATCHLIST
         stocks = [item[0] for item in WATCHLIST]
         print(f"从关注列表读取到 {len(stocks)} 只股票")

@@ -83,7 +83,8 @@ class SectorAnalyzer:
             temperature = AI_CONFIG.get('temperature', 0.3)
             max_tokens = AI_CONFIG.get('max_tokens', 8192)
 
-            print(f"  正在请求本地 Ollama AI ({model})...")
+            from user_settings import describe_ai_backend
+            print(f"  正在请求 {describe_ai_backend(AI_CONFIG)}...")
             client = ollama.Client(host=AI_CONFIG.get('base_url', 'http://localhost:11434'))
 
             response = client.chat(
@@ -100,8 +101,9 @@ class SectorAnalyzer:
 
             return response['message']['content']
         except Exception as e:
-            print(f"  调用本地 Ollama AI 时出错: {str(e)}")
-            return f"⚠️ 无法获取 AI 分析，请检查 Ollama 服务是否正常运行。\n\n错误信息: {str(e)}"
+            from user_settings import describe_ai_backend, format_ai_error_hint
+            print(f"  调用 {describe_ai_backend(AI_CONFIG)} 时出错: {str(e)}")
+            return f"⚠️ {format_ai_error_hint(AI_CONFIG, e)}"
 
     def build_single_sector_prompt(self, sector_name, sector_code, sector_type_cn,
                                     perf_summary, trend, latest_indicators, comparison):

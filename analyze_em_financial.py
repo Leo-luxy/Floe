@@ -531,7 +531,8 @@ class EastmoneyFinancialAnalyzer:
             
             print(f"提示词已保存到: {prompt_file_path}")
 
-            print(f"正在请求本地Ollama AI ({AI_CONFIG['model']})...")
+            from user_settings import describe_ai_backend
+            print(f"正在请求 {describe_ai_backend(AI_CONFIG)}...")
             client = ollama.Client(host=AI_CONFIG['base_url'])
             
             response = client.chat(
@@ -546,10 +547,14 @@ class EastmoneyFinancialAnalyzer:
                 }
             )
             
-            return response['message']['content']
+            content = (response.get('message') or {}).get('content') or ''
+            if not str(content).strip():
+                raise RuntimeError("AI 返回内容为空")
+            return content
         except Exception as e:
-            print(f"调用本地Ollama AI时出错: {e}")
-            return "无法获取AI分析，请检查Ollama服务是否正常运行。"
+            from user_settings import describe_ai_backend, format_ai_error_hint
+            print(f"调用 {describe_ai_backend(AI_CONFIG)} 时出错: {e}")
+            return format_ai_error_hint(AI_CONFIG, e)
 
     def save_analysis_result(self, analysis_content: str):
         """保存分析结果"""
@@ -558,9 +563,22 @@ class EastmoneyFinancialAnalyzer:
         timestamp = datetime.now().strftime('%Y%m%d')
         filename = f"{self.ticker}_em_financial_analysis_{timestamp}.md"
         file_path = os.path.join(self.stock_dir, filename)
-        
+
+        text = str(analysis_content or '').strip()
+        if not text.startswith('#'):
+            company_name_display = self.company_name if self.company_name else ""
+            title_prefix = f"{self.ticker} {company_name_display}".strip()
+            body = text if text else "无法获取AI分析，AI 返回内容为空。"
+            content_to_write = (
+                f"# {title_prefix} 东方财富财务分析报告\n\n"
+                f"## 分析时间\n{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+                f"## AI分析结果\n{body}\n"
+            )
+        else:
+            content_to_write = analysis_content
+
         with open(file_path, 'w', encoding='utf-8') as f:
-            f.write(analysis_content)
+            f.write(content_to_write)
         
         print(f"分析报告已保存到: {file_path}")
         return file_path

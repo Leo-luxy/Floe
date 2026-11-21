@@ -7,16 +7,33 @@
 # 3. 记录执行结果和时间
 
 import os
+import subprocess
+import sys
 import time
+
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
 from config import STOCK_TICKERS
 
 def run_command(command, stock=None):
-    """运行命令并打印输出"""
+    """运行命令并打印输出（兼容源码态解释器与 PyInstaller 冻结态）"""
+    env = None
+    try:
+        import app_paths as _ap
+        command = _ap.rewrite_shell_python_cmd(command)
+        env = _ap.subprocess_env()
+    except Exception:
+        if command.startswith('python '):
+            exe = sys.executable or 'python'
+            prefix = f'"{exe}" --run-script ' if getattr(sys, 'frozen', False) else f'"{exe}" '
+            command = prefix + command[len('python '):]
     if stock:
         print(f"\n=== 正在处理股票: {stock} ===")
     print(f"执行命令: {command}")
     start_time = time.time()
-    result = os.system(command)
+    result = subprocess.run(command, shell=True, env=env).returncode
     end_time = time.time()
     print(f"执行时间: {end_time - start_time:.2f}秒")
     if result != 0:

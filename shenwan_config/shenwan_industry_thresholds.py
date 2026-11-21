@@ -19,9 +19,13 @@ class ShenwanIndustryThresholds:
             data_dir: 申万行业数据目录，默认使用 data/shenwan_industry
         """
         if data_dir is None:
-            # 默认使用项目目录下的申万行业数据
-            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            self.data_dir = os.path.join(project_root, 'data', 'shenwan_industry')
+            # 优先使用配置中的用户数据目录（兼容桌面打包模式），不存在时安全回退
+            try:
+                from config import DATA_DIR as _cfg_data_dir
+                self.data_dir = os.path.join(_cfg_data_dir, 'shenwan_industry')
+            except Exception:
+                project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                self.data_dir = os.path.join(project_root, 'data', 'shenwan_industry')
         else:
             self.data_dir = data_dir
         
@@ -33,7 +37,10 @@ class ShenwanIndustryThresholds:
         self._load_data()
     
     def _load_data(self):
-        """加载申万行业数据"""
+        """加载申万行业数据（首次安装目录尚未生成时静默回退默认阈值，不抛 FileNotFoundError）"""
+        if not self.data_dir or not os.path.isdir(self.data_dir):
+            return
+
         # 加载一级行业数据
         level1_file = os.path.join(self.data_dir, 'shenwan_industry_level1.csv')
         if os.path.exists(level1_file):

@@ -49,18 +49,52 @@ class StaleResultError(RuntimeError):
     """回测结果与当前行情不一致时抛出，属于必须中断的错误，不是可跳过的取数失败。"""
 
 
+def _python_runner() -> str:
+    """返回兼容源码态与 PyInstaller 冻结态（--run-script）的 Python 脚本执行前缀。"""
+    try:
+        from app_paths import python_exec_cmd_prefix
+        return python_exec_cmd_prefix()
+    except Exception:
+        exe = sys.executable or 'python'
+        if getattr(sys, 'frozen', False):
+            return f'"{exe}" --run-script'
+        return f'"{exe}"'
+
+
+def _subprocess_env() -> dict:
+    """获取子进程环境变量（确保打包态继承用户目录、SSL 证书与防弹窗标记）。"""
+    try:
+        from app_paths import subprocess_env
+        return subprocess_env()
+    except Exception:
+        env = os.environ.copy()
+        env['FLOE_SUBPROCESS'] = '1'
+        return env
+
+
+_LAST_CMD_ERROR_TAIL = ''
+
+
 def run_command_status(cmd, description):
     """执行命令并返回真实退出码（0 成功，-1 启动异常/超时）。"""
+    global _LAST_CMD_ERROR_TAIL
+    _LAST_CMD_ERROR_TAIL = ''
     print(f"\n{'='*60}")
     print(f"执行: {description}")
     print(f"命令: {cmd}")
     print('='*60)
     try:
-        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=600)
+        result = subprocess.run(
+            cmd, shell=True, capture_output=True, text=True,
+            encoding='utf-8', errors='replace',
+            timeout=600, env=_subprocess_env(),
+        )
     except subprocess.TimeoutExpired:
+        _LAST_CMD_ERROR_TAIL = '执行超时'
         print(f"超时: {description}")
         return -1
     except Exception as exc:
+        _LAST_CMD_ERROR_TAIL = str(exc)
         print(f"异常: {description} - {exc}")
         return -1
     if result.returncode == 0:
@@ -69,9 +103,12 @@ def run_command_status(cmd, description):
             print(f"输出:\n{result.stdout[-2000:] if len(result.stdout) > 2000 else result.stdout}")
     else:
         print(f"失败: {description}（returncode={result.returncode}）")
-        tail = (result.stderr or result.stdout or '')[-1500:]
+        raw_err = (result.stderr or result.stdout or '').strip()
+        tail = raw_err[-1500:]
         if tail:
             print(f"输出尾部:\n{tail}")
+            last_lines = [ln.strip() for ln in raw_err.splitlines() if ln.strip()]
+            _LAST_CMD_ERROR_TAIL = ' | '.join(last_lines[-2:])[:240]
     return result.returncode
 
 
@@ -171,15 +208,20 @@ def process_single_stock(ticker, skip_data_collection=False, skip_indicators=Fal
     print('='*80)
 
     ticker = normalize_ticker(ticker)
+    py_runner = _python_runner()
     try:
-        from app_paths import python_exec_cmd_prefix
-        py_runner = python_exec_cmd_prefix()
+        from app_paths import resolve_script_path
+        collector_script = resolve_script_path("data_collector.py")
+        indicator_script = resolve_script_path(os.path.join("daily", "stock_daily_indicator_calculator.py"))
+        backtest_script = resolve_script_path("trend_following_backtest.py")
     except Exception:
-        py_runner = f'"{sys.executable or "python"}"'
+        collector_script = os.path.join(PROJECT_ROOT, "data_collector.py")
+        indicator_script = os.path.join(PROJECT_ROOT, "daily", "stock_daily_indicator_calculator.py")
+        backtest_script = os.path.join(PROJECT_ROOT, "trend_following_backtest.py")
 
     # 1. 获取行情数据（如果未跳过）
     if not skip_data_collection:
-        collector = f'{py_runner} "{os.path.join(PROJECT_ROOT, "data_collector.py")}"'
+        collector = f'{py_runner} "{collector_script}"'
         code = run_command_status(f'{collector} --ticker {ticker}', f"获取 {ticker} 行情数据")
         if code == 3:
             # 退出码 3 = 前复权基准变化（除权除息）。增量追加会造假跌，必须用统一基准重建。
@@ -216,7 +258,7 @@ def process_single_stock(ticker, skip_data_collection=False, skip_indicators=Fal
             print('指标来源验证失败，重新计算')
     if meta is None:
         cmd = (
-            f'{py_runner} "{os.path.join(PROJECT_ROOT, "daily", "stock_daily_indicator_calculator.py")}"'
+            f'{py_runner} "{indicator_script}"'
             f' --ticker {ticker} --input-dir "{DATA_DIR}" --output-dir "{DATA_DIR}"'
         )
         indicator_code = run_command_status(cmd, f"计算 {ticker} 技术指标")
@@ -235,7 +277,7 @@ def process_single_stock(ticker, skip_data_collection=False, skip_indicators=Fal
     # 3. 趋势回测（统一引擎 simple 模式，参数与预设一致）
     # 批量筛选不需要图表：跳过绘图能显著缩短整批耗时
     cmd = (
-        f'{py_runner} "{os.path.join(PROJECT_ROOT, "trend_following_backtest.py")}"'
+        f'{py_runner} "{backtest_script}"'
         f' --ticker {ticker} --mode {STRATEGY} --no-plot --data-dir "{DATA_DIR}"'
     )
     success = run_command(cmd, f"趋势回测 {ticker}")
@@ -353,13 +395,19 @@ def write_holdings(rows, output_path, status_path, status):
 
 def collect_market(ticker):
     """预检阶段先更新全部行情；网络/权限错误不是“尚未发布”，仍然失败。"""
-    python = sys.executable
-    collector = f'"{python}" "{os.path.join(PROJECT_ROOT, "data_collector.py")}"'
+    py_runner = _python_runner()
+    try:
+        from app_paths import resolve_script_path
+        collector_script = resolve_script_path("data_collector.py")
+    except Exception:
+        collector_script = os.path.join(PROJECT_ROOT, "data_collector.py")
+    collector = f'{py_runner} "{collector_script}"'
     code = run_command_status(f'{collector} --ticker {ticker}', f'预检更新 {ticker} 行情')
     if code == 3:
         code = run_command_status(f'{collector} --ticker {ticker} --rebuild', f'重建 {ticker} 前复权历史')
     if code:
-        raise RuntimeError(f'{ticker}: 行情取数失败（退出码 {code}），未冒充当日未齐')
+        extra_detail = f'（{_LAST_CMD_ERROR_TAIL}）' if _LAST_CMD_ERROR_TAIL else ''
+        raise RuntimeError(f'{ticker}: 行情取数失败（退出码 {code}）{extra_detail}，未冒充当日未齐')
 
 
 def prepare_batch(tickers, input_path, requested_asof, skip_data, run_id):
@@ -390,11 +438,7 @@ def prepare_batch(tickers, input_path, requested_asof, skip_data, run_id):
         incomplete = False
         for script, extra in [('step1_daily.py', f' --trade-date {chosen}'),
                               ('step2_daily_basic.py', ''), ('step3_filter.py', '')]:
-            try:
-                from app_paths import python_exec_cmd_prefix
-                step_runner = python_exec_cmd_prefix()
-            except Exception:
-                step_runner = f'"{sys.executable}"'
+            step_runner = _python_runner()
             cmd = f'{step_runner} "{os.path.join(CURRENT_DIR, script)}"{extra}'
             code = run_command_status(cmd, f'按 {chosen} 重建初筛 {script}')
             if code == 4 and chosen == datetime.now().strftime('%Y%m%d'):

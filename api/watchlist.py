@@ -60,18 +60,19 @@ def resolve_stock_name(normalized_code, allow_remote=True):
     except Exception:
         pass
 
-    # 3. 轻量东方财富简称接口（1.2s 超时，失败静默退回空字符串，不阻塞离线场景）
+    # 3. 轻量在线行情简称查询（统一经由 data_hub 东财 -> 腾讯 -> 新浪多源自动切换）
     if allow_remote and re.fullmatch(r'\d{6}\.(SH|SZ)', normalized_code):
-        code6, market = normalized_code.split('.')
-        secid = f"{'1' if market == 'SH' else '0'}.{code6}"
-        url = f'https://push2.eastmoney.com/api/qt/stock/get?secid={secid}&fields=f58'
         try:
-            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-            with urllib.request.urlopen(req, timeout=1.2) as resp:
-                payload = json.loads(resp.read().decode('utf-8', errors='ignore'))
-                name = str((payload.get('data') or {}).get('f58') or '').strip()
-                if name and name != '-':
-                    return name
+            import app_paths as _ap_ssl
+            _ap_ssl.ensure_ssl_certificates()
+        except Exception:
+            pass
+        try:
+            import data_hub
+            quote = data_hub.fetch("stock_realtime_quote", ticker=normalized_code)
+            q_name = str((quote or {}).get("name") or "").strip()
+            if q_name and q_name != '-':
+                return q_name
         except Exception:
             pass
 

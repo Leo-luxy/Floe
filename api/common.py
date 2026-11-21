@@ -69,7 +69,10 @@ def _terminate_process_group(process):
         if os.name == 'posix':
             os.killpg(os.getpgid(process.pid), signal.SIGKILL)
         else:
-            process.kill()
+            # Windows 下 shell=True 时 process 只是 cmd.exe，必须连同子进程树一起结束，
+            # 否则后台 python 采集进程会继续运行、继续写文件
+            subprocess.run(['taskkill', '/F', '/T', '/PID', str(process.pid)],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15)
     except ProcessLookupError:
         pass
     except Exception:
@@ -133,7 +136,8 @@ def execute_step(step_name: str, command: str, cwd: str, messages: list, timeout
         if _ap is not None:
             command = _ap.rewrite_shell_python_cmd(command)
         else:
-            command = f'"{sys.executable}" ' + command[len('python '):]
+            prefix = f'"{sys.executable}" --run-script ' if getattr(sys, 'frozen', False) else f'"{sys.executable}" '
+            command = prefix + command[len('python '):]
 
     try:
         env = _ap.subprocess_env() if _ap is not None else os.environ.copy()
@@ -232,6 +236,9 @@ def _normalize_step(step):
 
 def _step_timeout_seconds(step_name):
     """根据步骤类型设置不同的超时时间（秒）。"""
+    if step_name.startswith('[采集]') and ('日更数据' in step_name or '全量证据复核' in step_name):
+        # 统一核验步骤串行检查 6~13 项数据，内部每条采集命令另有 240 秒上限
+        return 1200
     if step_name.startswith('[采集]'):
         return 300  # 数据采集：5分钟
     if step_name.startswith('[计算]'):
@@ -257,7 +264,12 @@ def _execute_steps(task_id, full_stock_code, steps, label):
     返回 True 表示全部关键步骤成功（可能出现降级），False 表示关键步骤失败。
     """
     messages = []
-    data_dir = os.path.join(project_root, 'data', full_stock_code)
+    try:
+        from config import DATA_DIR as _cfg_data_dir
+        base_data_dir = _cfg_data_dir
+    except Exception:
+        base_data_dir = (_ap.get_data_dir() if _ap is not None else os.path.join(project_root, 'data'))
+    data_dir = os.path.join(base_data_dir, full_stock_code)
     os.makedirs(data_dir, exist_ok=True)
 
     task_status[task_id] = {
@@ -367,11 +379,7 @@ def run_analysis_task(task_id: str, stock_code: str, task_type: str):
             ('[采集] 前十大股东', f'python shareholders_collector.py --ticker {full_stock_code}', {'critical': False}),
             ('[采集] 股东户数', f'python shareholder_num_collector.py --ticker {full_stock_code}', {'critical': False}),
             ('[采集] 机构持股', f'python org_hold_collector.py --ticker {full_stock_code}', {'critical': False}),
-            ('[采集] 市场表现', f'python eastmoney_fetcher.py --type market_performance --ticker {full_stock_code}', {'critical': False}),
-            ('[采集] 行业估值', f'python eastmoney_fetcher.py --type industry_valuation --ticker {full_stock_code}', {'critical': False}),
-            ('[采集] 同行业公司', f'python eastmoney_fetcher.py --type industry_peers --ticker {full_stock_code}', {'critical': False}),
-            ('[采集] 行业成长', f'python eastmoney_fetcher.py --type industry_growth --ticker {full_stock_code}', {'critical': False}),
-            ('[采集] 杜邦分析', f'python eastmoney_fetcher.py --type dupont --ticker {full_stock_code}', {'critical': False}),
+            ('[采集] 东财F10数据', f'python eastmoney_fetcher.py --type all --ticker {full_stock_code}', {'critical': False}),
             ('[采集] 申万行业', f'python shenwan_industry_collector.py --ticker {full_stock_code}', {'critical': False}),
             # 所有采集完成后统一复核，先写完整证据状态，再生成任何维度报告。
             ('[采集] 全量证据复核', f'python check_data_updates.py --mode all --ticker {full_stock_code}'),

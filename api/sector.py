@@ -80,34 +80,16 @@ def _fetch_board_list_on_demand(sector_type):
         except Exception:
             pass
 
-    # 3. 从 akshare 实时拉取
+    # 3. 统一经由 data_hub 实时拉取（自动协同 net_guard 与东财/同花顺降级）
     try:
-        # 禁用系统代理（避免本地代理不可用导致请求失败）
-        for _key in ('http_proxy', 'https_proxy', 'HTTP_PROXY', 'HTTPS_PROXY',
-                     'all_proxy', 'ALL_PROXY'):
-            os.environ.pop(_key, None)
-        try:
-            import urllib.request
-            urllib.request.getproxies = lambda: {}
-        except Exception:
-            pass
-
-        import akshare as ak
+        import data_hub
 
         os.makedirs(type_dir, exist_ok=True)
-
-        if sector_type == 'industry':
-            df = ak.stock_board_industry_name_em()
-        elif sector_type == 'concept':
-            df = ak.stock_board_concept_name_em()
-        else:
-            return None
-
+        df = data_hub.fetch("sector_board_list", board_type=sector_type)
         if df is not None and not df.empty:
             df.to_csv(board_list_path, index=False, encoding='utf-8-sig')
             _board_list_cache[sector_type] = df
             return df
-
     except Exception:
         pass  # 网络不可用时静默失败，后续逻辑会 fallback 到硬编码映射
 

@@ -47,11 +47,6 @@ def load_company_info(ticker):
             print(f"成功加载 {ticker} 的公司信息文件: {info_file}")
             # 合并公司信息到数据字典
             data.update(company_data)
-            
-            # 处理上市日期缺失值
-            if 'basic_info' in company_data and '上市日期' in company_data['basic_info'] and company_data['basic_info']['上市日期'] is None:
-                company_data['basic_info']['上市日期'] = "2010-04-09"  # 东山精密实际上市日期
-                print("已补充上市日期为: 2010-04-09")
         except Exception as e:
             print(f"加载公司信息文件时出错: {str(e)}")
     else:
@@ -458,7 +453,8 @@ def get_ai_analysis(prompt):
         temperature = AI_CONFIG['temperature']
         max_tokens = AI_CONFIG['max_tokens']
         
-        print(f"正在请求本地Ollama AI ({model})...")
+        from user_settings import describe_ai_backend
+        print(f"正在请求 {describe_ai_backend(AI_CONFIG)}...")
         # 配置Ollama客户端使用localhost
         client = ollama.Client(host=AI_CONFIG['base_url'])
         
@@ -474,10 +470,14 @@ def get_ai_analysis(prompt):
             }
         )
         
-        return response['message']['content']
+        content = (response.get('message') or {}).get('content') or ''
+        if not str(content).strip():
+            raise RuntimeError("AI 返回内容为空")
+        return content
     except Exception as e:
-        print(f"调用本地Ollama AI时出错: {str(e)}")
-        return "无法获取AI分析，请检查Ollama服务是否正常运行。"
+        from user_settings import describe_ai_backend, format_ai_error_hint
+        print(f"调用 {describe_ai_backend(AI_CONFIG)} 时出错: {str(e)}")
+        return format_ai_error_hint(AI_CONFIG, e)
 
 def save_prompt(ticker, prompt):
     """保存提示词到本地文件"""

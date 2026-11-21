@@ -262,9 +262,111 @@ def save_preferences():
     })
 
 
+# 国内免代理可直连的官方仓库版本元数据 CDN 镜像（仅用于 GitHub API 受阻时只读提取最新版本号与更新说明）
+_DOMESTIC_VERSION_CDNS = (
+    f'https://testingcf.jsdelivr.net/gh/{version.GITHUB_REPO}@main/version.py',
+    f'https://fastly.jsdelivr.net/gh/{version.GITHUB_REPO}@main/version.py',
+)
+
+# 国内实时行情出站网络连通性探活池（按稳定性排序，任一连通即证明出站网络正常，避免单点反爬误报）
+_MARKET_FEED_PROBES = (
+    (
+        '新浪财经',
+        'Sina Finance',
+        'https://hq.sinajs.cn/list=sh000001',
+        {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+            'Referer': 'https://finance.sina.com.cn/',
+        },
+    ),
+    (
+        '腾讯财经',
+        'Tencent Finance',
+        'https://qt.gtimg.cn/q=sh000001',
+        {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+        },
+    ),
+    (
+        'Tushare 网关',
+        'Tushare Gateway',
+        'http://api.tushare.pro',
+        {
+            'User-Agent': 'Mozilla/5.0',
+        },
+    ),
+)
+
+
+def _extract_version_metadata_safely(py_source: str) -> dict:
+    """使用 AST 纯字面量安全解析远程 version.py 中的版本号与发版说明（绝不执行任何代码）。"""
+    tree = ast.parse(py_source, mode='exec')
+    allowed_keys = {'APP_VERSION', 'RELEASE_CHANGELOG_ZH', 'RELEASE_CHANGELOG_EN'}
+    extracted = {}
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+            key = node.targets[0].id
+            if key in allowed_keys:
+                val = ast.literal_eval(node.value)
+                if isinstance(val, str):
+                    extracted[key] = val.strip()
+    ver = extracted.get('APP_VERSION', '')
+    if not re.fullmatch(r'\d+\.\d+\.\d+(?:[-.][0-9A-Za-z]+)?', ver):
+        raise ValueError(f'Invalid remote APP_VERSION: {ver!r}')
+    return extracted
+
+
+def _fetch_release_via_domestic_cdn(timeout: float = 3.5) -> dict:
+    """当 GitHub API 在国内无代理网络受阻时，通过国内可直连 CDN 读取官方仓库最新版本号与更新日志。"""
+    app_paths.ensure_ssl_certificates()
+    direct_opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    last_err = None
+    meta = None
+    for cdn_url in _DOMESTIC_VERSION_CDNS:
+        req = urllib.request.Request(
+            cdn_url,
+            headers={
+                'User-Agent': f'{version.APP_NAME}/{version.APP_VERSION}',
+                'Cache-Control': 'no-cache',
+            },
+        )
+        try:
+            with direct_opener.open(req, timeout=timeout) as resp:
+                raw_text = resp.read().decode('utf-8', errors='replace')
+            meta = _extract_version_metadata_safely(raw_text)
+            break
+        except Exception as exc:
+            last_err = exc
+            continue
+
+    if not meta:
+        raise last_err or urllib.error.URLError('Domestic version CDN unreachable')
+
+    ver = meta['APP_VERSION']
+    tag = f'v{ver}'
+    is_en = (us.get_ui_language() == 'en-US')
+    notes = (meta.get('RELEASE_CHANGELOG_EN') if is_en else meta.get('RELEASE_CHANGELOG_ZH')) or ''
+    dl_base = f'https://github.com/{version.GITHUB_REPO}/releases/download/{tag}'
+    synthetic_assets = [
+        {'name': f'Floe-{tag}-macos-arm64.dmg', 'browser_download_url': f'{dl_base}/Floe-{tag}-macos-arm64.dmg', 'size': 0},
+        {'name': f'Floe-{tag}-macos-x64.dmg', 'browser_download_url': f'{dl_base}/Floe-{tag}-macos-x64.dmg', 'size': 0},
+        {'name': f'Floe-{tag}-windows-x64.zip', 'browser_download_url': f'{dl_base}/Floe-{tag}-windows-x64.zip', 'size': 0},
+        {'name': f'Floe-{tag}-linux-x86_64.AppImage', 'browser_download_url': f'{dl_base}/Floe-{tag}-linux-x86_64.AppImage', 'size': 0},
+        {'name': f'Floe-{tag}-linux-x64.tar.gz', 'browser_download_url': f'{dl_base}/Floe-{tag}-linux-x64.tar.gz', 'size': 0},
+    ]
+    return {
+        'tag_name': tag,
+        'name': f'{version.APP_NAME} Version {ver}',
+        'published_at': '',
+        'body': notes,
+        'html_url': f'https://github.com/{version.GITHUB_REPO}/releases/tag/{tag}',
+        'assets': synthetic_assets,
+    }
+
+
 @settings_bp.route('/settings/check_update', methods=['GET'])
 def check_for_updates():
-    """对接 GitHub Releases 检测新版本，单次超时请求不自动重试，返回匹配渠道升级方式。"""
+    """对接 GitHub Releases 检测新版本；若国内网络直连 GitHub 受阻且未开代理，自动回退国内高速 CDN 版本源。"""
     current_ver = version.APP_VERSION
     channel = detect_install_channel()
 
@@ -282,25 +384,32 @@ def check_for_updates():
             'User-Agent': f'{version.APP_NAME}/{current_ver}',
         },
     )
+    release = None
     try:
-        with net_guard.urlopen_with_optional_proxy(req, timeout=5.0) as resp:
+        with net_guard.urlopen_with_optional_proxy(req, timeout=4.5) as resp:
             release = json.loads(resp.read().decode('utf-8', errors='replace'))
-    except urllib.error.HTTPError as exc:
-        return jsonify({
-            'success': False,
-            'current_version': current_ver,
-            'releases_url': version.GITHUB_RELEASES_PAGE,
-            'message': f'GitHub Release 查询返回 HTTP {exc.code}，可点击前往发布页手动查看',
-        })
-    except Exception as exc:
-        inner = getattr(exc, 'reason', None)
-        err_tag = f'{type(exc).__name__}: {type(inner).__name__}' if inner is not None else type(exc).__name__
-        return jsonify({
-            'success': False,
-            'current_version': current_ver,
-            'releases_url': version.GITHUB_RELEASES_PAGE,
-            'message': f'暂时无法连接 GitHub 更新源（{err_tag}）。若处于国内受限网络，可在设置中临时切换为「跟随系统代理」或直接访问发布页。',
-        })
+    except urllib.error.HTTPError as http_exc:
+        try:
+            release = _fetch_release_via_domestic_cdn(timeout=3.5)
+        except Exception:
+            return jsonify({
+                'success': False,
+                'current_version': current_ver,
+                'releases_url': version.GITHUB_RELEASES_PAGE,
+                'message': f'GitHub Release 查询返回 HTTP {http_exc.code}，可点击前往发布页手动查看',
+            })
+    except Exception as first_exc:
+        try:
+            release = _fetch_release_via_domestic_cdn(timeout=3.5)
+        except Exception:
+            inner = getattr(first_exc, 'reason', None)
+            err_tag = f'{type(first_exc).__name__}: {type(inner).__name__}' if inner is not None else type(first_exc).__name__
+            return jsonify({
+                'success': False,
+                'current_version': current_ver,
+                'releases_url': version.GITHUB_RELEASES_PAGE,
+                'message': f'暂时无法连接 GitHub 更新源（{err_tag}）。若处于国内受限网络，可在设置中临时切换为「跟随系统代理」或直接访问发布页。',
+            })
 
     latest_tag = str(release.get('tag_name') or '').strip()
     latest_clean = latest_tag.lstrip('vV') or current_ver
@@ -372,27 +481,48 @@ def run_system_diagnostics():
                       if loopback_only else f'Listening on {host_cfg}; allow OS firewall prompt if shown'),
     })
 
-    # 3. 国内实时行情网关出站网络权限（东方财富 push2 轻量探测）
+    # 3. 国内实时行情网关出站网络权限（多源冗余探活，避免单点 CDN/反爬掐连接误报）
     app_paths.ensure_ssl_certificates()
     net_info = net_guard.status()
-    try:
-        req = urllib.request.Request(
-            'https://push2.eastmoney.com/api/qt/stock/get?secid=1.000001&fields=f43,f58',
-            headers={'User-Agent': 'Mozilla/5.0'},
-        )
-        with urllib.request.urlopen(req, timeout=2.5) as resp:
-            ok_feed = (resp.status == 200)
+    feed_ok = False
+    reached_zh = ''
+    reached_en = ''
+    last_feed_exc = None
+    for name_zh, name_en, feed_url, feed_headers in _MARKET_FEED_PROBES:
+        try:
+            req = urllib.request.Request(feed_url, headers=feed_headers)
+            with urllib.request.urlopen(req, timeout=2.5) as resp:
+                status_code = getattr(resp, 'status', 200)
+                if 200 <= int(status_code) < 400:
+                    feed_ok = True
+                    reached_zh = name_zh
+                    reached_en = name_en
+                    break
+        except urllib.error.HTTPError as http_exc:
+            # Tushare 根地址对空 GET 可能返回 HTTP 400/405，同样证明 TCP/HTTP 出站已连通服务端
+            if http_exc.code in (400, 403, 404, 405):
+                feed_ok = True
+                reached_zh = name_zh
+                reached_en = name_en
+                break
+            last_feed_exc = http_exc
+        except Exception as exc:
+            last_feed_exc = exc
+
+    if feed_ok:
         checks.append({
             'id': 'market_network',
-            'ok': ok_feed,
+            'ok': True,
             'title_zh': '出站网络与国内行情源连通性',
             'title_en': 'Outbound Network & Market Data Feed',
-            'detail_zh': f'东方财富实时接口连通正常 · 当前策略：{net_info.get("detail", "直连")}',
-            'detail_en': f'Eastmoney market feed reachable · Mode: {us.get_network_mode()}',
+            'detail_zh': f'国内行情网关连通正常（{reached_zh}）· 当前策略：{net_info.get("detail", "直连")}',
+            'detail_en': f'Market data feed reachable ({reached_en}) · Mode: {us.get_network_mode()}',
         })
-    except Exception as exc:
-        inner = getattr(exc, 'reason', None)
-        err_tag = f'{type(inner).__name__}' if inner is not None else type(exc).__name__
+    else:
+        inner = getattr(last_feed_exc, 'reason', None) if last_feed_exc is not None else None
+        err_tag = f'{type(inner).__name__}' if inner is not None else (
+            type(last_feed_exc).__name__ if last_feed_exc is not None else 'Unreachable'
+        )
         checks.append({
             'id': 'market_network',
             'ok': False,
@@ -645,7 +775,7 @@ def test_ai_settings():
             api_key=api_key,
             model=api_model,
             messages=[{'role': 'user', 'content': '请仅回复OK两个字母'}],
-            options={'temperature': 0.0, 'num_predict': 16},
+            options={'temperature': 0.0, 'num_predict': 512},
             timeout=15,
         )
         reply = (resp.get('message') or {}).get('content', '').strip()

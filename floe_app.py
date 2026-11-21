@@ -13,6 +13,7 @@ Floe 跨平台统一启动器（macOS / Windows / Linux）
    → 供 PyInstaller 打包环境下安全调度选股、回测、采集与 AI 分析子进程，绝不重复弹窗
 """
 
+import multiprocessing
 import os
 import runpy
 import socket
@@ -48,8 +49,22 @@ def _ensure_valid_stdio():
 
 
 def _dispatch_internal_script():
-    """拦截 --run-script 子命令：在当前进程内直接执行指定业务脚本并以其退出码返回。"""
+    """拦截 --run-script 子命令（以及冻结态直接传入 .py 脚本的兜底调用）：在当前进程内直接执行指定业务脚本并退出。"""
+    raw_script = None
+    extra_args = []
     if len(sys.argv) >= 3 and sys.argv[1] == '--run-script':
+        raw_script = sys.argv[2]
+        extra_args = sys.argv[3:]
+    elif (
+        bool(getattr(sys, 'frozen', False))
+        and len(sys.argv) >= 2
+        and not str(sys.argv[1]).startswith('-')
+        and str(sys.argv[1]).lower().endswith('.py')
+    ):
+        raw_script = sys.argv[1]
+        extra_args = sys.argv[2:]
+
+    if raw_script is not None:
         import app_paths
         user_dir = app_paths.activate_runtime_paths()
         _ensure_valid_stdio()
@@ -58,19 +73,20 @@ def _dispatch_internal_script():
                 os.chdir(user_dir)
             except OSError:
                 pass
-        target_script = app_paths.resolve_script_path(sys.argv[2])
+        target_script = app_paths.resolve_script_path(raw_script)
         if not os.path.isfile(target_script):
             sys.stderr.write(f'[Floe] Script not found: {target_script}\n')
             sys.exit(2)
         script_dir = os.path.dirname(os.path.abspath(target_script))
         if script_dir not in sys.path:
             sys.path.insert(0, script_dir)
-        sys.argv = [target_script] + sys.argv[3:]
+        sys.argv = [target_script] + extra_args
         runpy.run_path(target_script, run_name='__main__')
         sys.exit(0)
 
 
-# 必须在导入重型 GUI / Flask 模块前优先拦截子脚本调用
+# 必须在导入重型 GUI / Flask 模块前优先处理 PyInstaller 多进程冻结支持与子脚本拦截
+multiprocessing.freeze_support()
 _dispatch_internal_script()
 
 
@@ -378,6 +394,14 @@ def main():
 
     if '--doctor' in args:
         return _run_doctor()
+
+    # 防重入守卫：后台任务子进程若未命中 --run-script 而意外落入 GUI 入口，立即非零退出，绝不静默抢占新端口弹窗
+    if os.environ.get('FLOE_SUBPROCESS') == '1' and '--allow-nested-gui' not in args:
+        sys.stderr.write(f'[Floe] Refusing to launch nested GUI/server from background subprocess (argv={sys.argv!r}).\n')
+        return 2
+
+    # 标记当前进程为主应用宿主，后续所有派生子进程将自动继承该标记以阻止重复弹窗
+    os.environ['FLOE_SUBPROCESS'] = '1'
 
     if app_paths.is_packaged_mode():
         try:

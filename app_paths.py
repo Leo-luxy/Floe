@@ -508,6 +508,7 @@ def rewrite_shell_python_cmd(command: str) -> str:
 def subprocess_env() -> dict:
     """生成传递给子进程的环境变量字典，确保子进程继承用户数据目录、SSL 根证书与 UTF-8 编码。"""
     env = os.environ.copy()
+    env['FLOE_SUBPROCESS'] = '1'
     env.setdefault('PYTHONIOENCODING', 'utf-8')
     env.setdefault('PYTHONUTF8', '1')
     ca_path = resolve_ca_bundle_path()

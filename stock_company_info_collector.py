@@ -19,6 +19,13 @@ import csv
 # 文件现在在根目录，不需要添加路径
 
 from config import DATA_DIR, STOCK_TICKERS
+try:
+    from net_guard import apply_collector_socket_timeout, ensure_network_ready
+    ensure_network_ready()
+except Exception:
+    apply_collector_socket_timeout = None
+
+import data_hub
 
 
 class DateEncoder(json.JSONEncoder):
@@ -163,61 +170,14 @@ def get_stock_company_info(ticker):
     }
     
     # 1. 获取股票基本信息
-    
     print("获取基本信息...")
     try:
-        time.sleep(random.uniform(2, 4))  # 随机间隔2-4秒
-        if market == 'sh':
-            stock_symbol = f"SH{code}"
+        stock_info = data_hub.fetch("stock_company_basic", ticker=ticker)
+        if isinstance(stock_info, dict) and stock_info:
+            basic_info_dict = stock_info
+            print(f"成功获取 {len(basic_info_dict)} 个字段的基本信息")
         else:
-            stock_symbol = f"SZ{code}"
-        
-        # 方法2: 使用东方财富 API 获取基本信息
-        try:
-            print("使用方法2获取基本信息...")
-            import requests
-            import json
-            
-            # 构建东方财富 API URL
-            url = f"https://datacenter.eastmoney.com/securities/api/data/v1/get"
-            params = {
-                "reportName": "RPT_F10_BASIC_ORGINFO",
-                "columns": "ALL",
-                "filter": f"(SECUCODE=\"{ticker}\")",
-                "pageNumber": 1,
-                "pageSize": 1,
-                "source": "HSF10",
-                "client": "PC",
-                "v": str(int(time.time() * 1000))
-            }
-            
-            headers = {
-                "Accept": "*/*",
-                "Sec-Fetch-Site": "same-site",
-                "Origin": "https://emweb.securities.eastmoney.com",
-                "Referer": "https://emweb.securities.eastmoney.com/",
-                "Sec-Fetch-Dest": "empty",
-                "Accept-Language": "zh-CN,zh-Hans;q=0.9",
-                "Sec-Fetch-Mode": "cors",
-                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Safari/605.1.15",
-                "Connection": "keep-alive"
-            }
-            
-            response = requests.get(url, params=params, headers=headers)
-            response.raise_for_status()
-            
-            data = response.json()
-            
-            if data.get('success') and data.get('result') and data['result'].get('data'):
-                stock_info = data['result']['data'][0]
-                # 保存所有返回的字段
-                basic_info_dict = stock_info
-                print(f"成功获取 {len(basic_info_dict)} 个字段的基本信息")
-            else:
-                print("方法2获取的基本信息为空")
-                basic_info_dict = {}
-        except Exception as e2:
-            print(f"方法2获取基本信息时出错: {str(e2)}")
+            print("未获取到基本信息")
             basic_info_dict = {}
         
         # 保留所有字段，并添加中文映射
@@ -345,10 +305,8 @@ def get_stock_company_info(ticker):
     # 2. 获取股票规模对比
     print("获取股票规模对比...")
     try:
-        time.sleep(random.uniform(2, 4))
-        # 使用带市场代码的完整股票代码（大写市场代码）
         full_code = f"{market.upper()}{code}"
-        scale_df = ak.stock_zh_scale_comparison_em(symbol=full_code)
+        scale_df = data_hub.fetch("stock_scale_comparison", ticker=full_code)
         if not scale_df.empty:
             company_info['scale_comparison'] = scale_df.to_dict('records')
     except Exception as e:
@@ -357,8 +315,7 @@ def get_stock_company_info(ticker):
     # 3. 获取股票主营业务
     print("获取主营业务...")
     try:
-        time.sleep(random.uniform(2, 4))
-        business_df = ak.stock_zyjs_ths(symbol=code)
+        business_df = data_hub.fetch("stock_main_business", ticker=code)
         if not business_df.empty:
             company_info['business_scope'] = business_df.to_dict('records')[0].get('主营业务', '')
     except Exception as e:
@@ -369,8 +326,7 @@ def get_stock_company_info(ticker):
     # 5. 获取股票研究报告
     print("获取研究报告...")
     try:
-        time.sleep(random.uniform(2, 4))
-        report_df = ak.stock_research_report_em(symbol=code)
+        report_df = data_hub.fetch("stock_research_reports", ticker=code)
         if not report_df.empty:
             # 保存所有研究报告
             research_reports = report_df.to_dict('records')
@@ -400,9 +356,7 @@ def get_stock_company_info(ticker):
     # 7. 获取财务报表
     print("获取财务报表...")
     try:
-        time.sleep(random.uniform(2, 4))
-        stock_symbol_sina = f"{market}{code}"
-        profit_df = ak.stock_financial_report_sina(stock=stock_symbol_sina, symbol="利润表")
+        profit_df = data_hub.fetch("stock_financial_report", ticker=ticker, report_type="利润表")
         if not profit_df.empty:
             # 保存所有利润表数据
             profit_data = profit_df.to_dict('records')
@@ -419,8 +373,7 @@ def get_stock_company_info(ticker):
                     fieldnames = ['ticker'] + list(profit_data[0].keys())
                     save_to_csv(profit_path, profit_data, fieldnames, '报告日')
         
-        time.sleep(random.uniform(2, 4))
-        balance_df = ak.stock_financial_report_sina(stock=stock_symbol_sina, symbol="资产负债表")
+        balance_df = data_hub.fetch("stock_financial_report", ticker=ticker, report_type="资产负债表")
         if not balance_df.empty:
             # 保存所有资产负债表数据
             balance_data = balance_df.to_dict('records')
@@ -444,8 +397,7 @@ def get_stock_company_info(ticker):
     # 9. 获取财务摘要
     print("获取财务摘要...")
     try:
-        time.sleep(random.uniform(2, 4))
-        financial_abstract_df = ak.stock_financial_abstract(symbol=code)
+        financial_abstract_df = data_hub.fetch("stock_financial_abstract", ticker=code)
         if not financial_abstract_df.empty:
             company_info['financial_abstract'] = financial_abstract_df.to_dict('records')[0]
     except Exception as e:
@@ -454,10 +406,7 @@ def get_stock_company_info(ticker):
     # 10. 获取主要股东数据并直接保存到CSV（覆盖模式）
     print("获取主要股东数据...")
     try:
-        time.sleep(random.uniform(2, 4))
-        # 使用 akshare 获取前十大股东数据（需要市场前缀）
-        stock_symbol = f"{market}{code}"  # 如 sz300433 或 sh600000
-        main_shareholders_df = ak.stock_main_stock_holder(stock=stock_symbol)
+        main_shareholders_df = data_hub.fetch("stock_main_shareholders_basic", ticker=ticker)
         if not main_shareholders_df.empty:
             # 转换为字典列表
             main_shareholders = main_shareholders_df.to_dict('records')

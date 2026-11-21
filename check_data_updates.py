@@ -14,8 +14,9 @@
 #      每项可单独覆盖（configure_freshness_rule() 或 --freshness-config）：
 #        - 行情 qfq、技术指标：必须等于期望交易日（滞后 0 个交易日）；
 #        - 资金流、融资融券、估值：允许滞后 1 个交易日；
-#        - 股东户数、机构持股等低频数据：允许滞后 5 个交易日；
-#        - 财务类（财务指标、杜邦）：按报告季度判定，默认不允许落后于应披露季度（已含法定披露期宽限）；
+#        - 财务类（财务指标、杜邦）及季度披露类（股东户数、前十大股东、机构持股、北向持仓）：
+#          按报告季度判定，默认不允许落后于应披露季度（已含法定披露期宽限）；
+#        - 公司基本信息、除权除息：允许滞后 5 个交易日；
 #   4. 任一检查项失败 → main 汇总失败清单并返回非 0 退出码。
 #
 # 交易日与期望交易日的近似说明（本地没有 A 股交易日历表）：
@@ -76,21 +77,21 @@ DEFAULT_FRESHNESS_RULES = {
         'kind': 'trading_days', 'max_lag_trading_days': 1,
         'date_columns': ['数据日期', 'date'], 'desc': '估值',
     },
-    # ---- 低频：股东户数、机构持股等允许滞后 5 个交易日 ----
+    # ---- 季度披露类：股东户数、前十大股东、机构持股、北向持仓（按季度周期判定，最新季报/季中更新均达标） ----
     'shareholder_num': {
-        'kind': 'trading_days', 'max_lag_trading_days': 5,
+        'kind': 'quarter', 'max_lag_quarters': 0,
         'date_columns': ['END_DATE', '日期'], 'critical': False, 'desc': '股东户数',
     },
     'shareholder': {
-        'kind': 'trading_days', 'max_lag_trading_days': 5,
+        'kind': 'quarter', 'max_lag_quarters': 0,
         'date_columns': ['END_DATE', 'REPORT_DATE'], 'critical': False, 'desc': '前十大股东',
     },
     'institutional': {
-        'kind': 'trading_days', 'max_lag_trading_days': 5,
+        'kind': 'quarter', 'max_lag_quarters': 0,
         'date_columns': ['REPORT_DATE'], 'critical': False, 'desc': '机构持股',
     },
     'north_holdings': {
-        'kind': 'trading_days', 'max_lag_trading_days': 5,
+        'kind': 'quarter', 'max_lag_quarters': 0,
         'date_columns': ['TRADE_DATE', 'CC_DATE', 'date'], 'critical': False, 'desc': '北向持仓',
     },
     'company_basic': {
@@ -170,26 +171,122 @@ def _tail_output(stdout, stderr, max_lines=5, max_chars=500):
     return tail[-max_chars:]
 
 
-def run_command(cmd, cwd=None):
+# 单条更新命令的最长执行时间（秒）。任何采集子进程超过该时间都会被连同子进程树一起终止，
+# 避免某个数据源无响应时整个分析步骤「一直卡着」。
+COMMAND_TIMEOUT_SECONDS = 240
+
+# 同一轮检查内已经执行过的命令结果（资金流与估值共用同一采集命令，不重复抓取）；
+# 仅在 _check_group 执行期间启用，单独调用 check_and_update_item 时为 None（不缓存）
+_COMMAND_RESULTS = None
+
+
+def _kill_process_tree(process):
+    """终止子进程及其派生的整棵进程树（Windows 用 taskkill /T，POSIX 用进程组）。"""
+    try:
+        if os.name == 'nt':
+            subprocess.run(['taskkill', '/F', '/T', '/PID', str(process.pid)],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15)
+        else:
+            import signal
+            os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+    except Exception:
+        try:
+            process.kill()
+        except Exception:
+            pass
+    try:
+        process.wait(timeout=5)
+    except Exception:
+        pass
+
+
+def _execute_streaming(cmd, cwd=None, env=None, timeout=COMMAND_TIMEOUT_SECONDS):
+    """执行命令并把子进程输出逐行实时转发到本进程 stdout（上层任务页即可看到进度），
+    同时收集完整输出；超时则终止整棵进程树。返回 CompletedProcess（超时 returncode=124）。"""
+    import queue
+    import threading
+
+    popen_kwargs = dict(
+        shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        text=True, encoding='utf-8', errors='replace', bufsize=1, cwd=cwd, env=env,
+    )
+    if os.name == 'nt':
+        popen_kwargs['creationflags'] = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+    else:
+        popen_kwargs['start_new_session'] = True
+    process = subprocess.Popen(cmd, **popen_kwargs)
+
+    lines = []
+    line_queue = queue.Queue()
+
+    def _reader():
+        try:
+            for raw in process.stdout:
+                line_queue.put(raw)
+        except Exception:
+            pass
+        finally:
+            line_queue.put(None)
+
+    threading.Thread(target=_reader, daemon=True, name='cdu-output-reader').start()
+    deadline = datetime.now() + timedelta(seconds=float(timeout))
+    timed_out = False
+    while True:
+        remaining = (deadline - datetime.now()).total_seconds()
+        if remaining <= 0:
+            timed_out = True
+            break
+        try:
+            raw = line_queue.get(timeout=min(0.5, remaining))
+        except queue.Empty:
+            continue
+        if raw is None:
+            break
+        text = raw.rstrip('\r\n')
+        lines.append(text)
+        if text.strip():
+            print(f"    │ {text}", flush=True)
+
+    if timed_out:
+        _kill_process_tree(process)
+        lines.append(f'执行超时（超过 {int(timeout)} 秒），已终止该采集子进程')
+        print(f"    │ ⚠️ 执行超时（超过 {int(timeout)} 秒），已终止该采集子进程", flush=True)
+        return subprocess.CompletedProcess(cmd, 124, stdout='\n'.join(lines), stderr='')
+
+    returncode = process.wait()
+    try:
+        process.stdout.close()
+    except Exception:
+        pass
+    return subprocess.CompletedProcess(cmd, returncode, stdout='\n'.join(lines), stderr='')
+
+
+def run_command(cmd, cwd=None, timeout=None):
     """执行命令并返回 (success, detail)。
 
     只有退出码为 0 才算成功；失败时把 returncode 与输出末尾原因带出，
     由调用方汇总到失败清单，绝不把非 0 当成「警告」放行。
     注意：退出码 0 也不代表数据已更新，调用方还必须复核内容日期。
+    子进程输出实时转发，超过 COMMAND_TIMEOUT_SECONDS 会被终止并按失败处理。
     """
-    if cmd.startswith('python '):
-        try:
-            from app_paths import rewrite_shell_python_cmd
-            cmd = rewrite_shell_python_cmd(cmd)
-        except Exception:
-            cmd = f'"{sys.executable}" ' + cmd[len('python '):]
-    print(f"执行命令: {cmd}")
+    env = None
     try:
-        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, cwd=cwd)
-        if result.stdout:
-            print(f"标准输出: {result.stdout}")
-        if result.stderr:
-            print(f"标准错误: {result.stderr}")
+        import app_paths as _ap
+        env = _ap.subprocess_env()
+        if cmd.startswith('python '):
+            cmd = _ap.rewrite_shell_python_cmd(cmd)
+        if cwd is None and _ap.is_packaged_mode():
+            cwd = _ap.get_user_data_dir()
+    except Exception:
+        if cmd.startswith('python '):
+            prefix = f'"{sys.executable}" --run-script ' if getattr(sys, 'frozen', False) else f'"{sys.executable}" '
+            cmd = prefix + cmd[len('python '):]
+    if env is not None:
+        env['PYTHONUNBUFFERED'] = '1'
+    print(f"执行命令: {cmd}", flush=True)
+    try:
+        result = _execute_streaming(cmd, cwd=cwd, env=env,
+                                    timeout=timeout or COMMAND_TIMEOUT_SECONDS)
         from api.common import parse_data_status
         statuses = [parse_data_status(line) for line in (result.stdout or '').splitlines()]
         statuses = [s for s in statuses if s is not None]
@@ -776,6 +873,27 @@ def is_file_need_update(file_path, update_frequency_days):
     return False
 
 
+MARGIN_NA_VALID_DAYS = 7
+
+
+def margin_not_applicable(stock_dir, ticker, expected_date):
+    """该股票近期被确认不是融资融券标的时返回原因（只有两融标的才有融资融券数据）。
+
+    标记由 batch_margin_collector.py 在「当日全市场两融清单已成功拉取、但其中没有该股票」时写入，
+    有效期 MARGIN_NA_VALID_DAYS 个自然日，过期后会重新核对（股票可能被新纳入两融标的）。
+    """
+    marker = os.path.join(stock_dir, f'{ticker}_margin_na.json')
+    try:
+        with open(marker, encoding='utf-8') as fh:
+            info = json.load(fh)
+        checked = datetime.strptime(str(info.get('checked_date')), '%Y%m%d').date()
+    except (OSError, ValueError, TypeError):
+        return None
+    if abs((expected_date - checked).days) <= MARGIN_NA_VALID_DAYS:
+        return f"非融资融券标的（{checked} 全市场两融清单核对）"
+    return None
+
+
 def check_and_update_item(ticker, item_name, filename, command, expected_date, stock_dir):
     """检查单项数据；不达标则更新，并在命令成功后强制复核内容日期。
 
@@ -787,24 +905,47 @@ def check_and_update_item(ticker, item_name, filename, command, expected_date, s
     # 否则会天天误判、把正常分析任务一起卡死。
     tag = '[核心]' if rule.get('critical', True) else '[非核心]'
     file_path = os.path.join(stock_dir, filename)
+
+    # 非两融标的根本不存在融资融券数据：既不能每次都花几分钟逐日抓全市场，也不能判为核心失败
+    if item_name == 'margin_data' and not os.path.exists(file_path):
+        na_reason = margin_not_applicable(stock_dir, ticker, expected_date)
+        if na_reason:
+            print(f"  {filename}: {na_reason}，本项不适用，跳过")
+            return None
+
     fresh, _ = check_file_freshness(file_path, expected_date, rule, item_name=item_name)
     if fresh:
         return None
 
     # 融资融券是"按交易日抓全市场"的接口，一天约 20 秒且带休眠；
-    # 时效检查只需要补齐最近的空档，不必把几个月的历史全抓回来。
+    # 时效检查只需要补齐最近的空档，不必把几个月的历史全抓回来；
+    # 结束日固定为期望交易日，避免去抓尚未发布的当天数据。
     if item_name == 'margin_data' and '--start_date' not in command:
         start = expected_date - timedelta(days=10)
         command = f"{command} --start_date {start.strftime('%Y%m%d')}"
+    if item_name == 'margin_data' and '--end_date' not in command:
+        command = f"{command} --end_date {expected_date.strftime('%Y%m%d')}"
 
     before_date, _ = read_content_date(file_path, rule)
-    print(f"  {filename} 不达标（更新前内容日期 {before_date if before_date else '无法读取'}），执行更新命令: {command}")
-    ok, detail = run_command(command)
+    print(f"  {filename} 不达标（更新前内容日期 {before_date if before_date else '无法读取'}），执行更新命令: {command}", flush=True)
+    if _COMMAND_RESULTS is not None and command in _COMMAND_RESULTS:
+        # 同一轮里已执行过同一条采集命令（如资金流与估值共用一个采集脚本），直接复用结果再独立复核内容
+        ok, detail = _COMMAND_RESULTS[command]
+        print(f"  本轮已执行过该命令，复用结果后独立复核 {item_name}")
+    else:
+        ok, detail = run_command(command)
+        if _COMMAND_RESULTS is not None:
+            _COMMAND_RESULTS[command] = (ok, detail)
     if item_name == 'qfq' and not ok and 'returncode=3' in str(detail):
         # 退出码 3 = 前复权基准变化（除权除息）。增量拒绝追加是对的，
         # 但必须用统一基准重建，否则该股票会永远更新失败。
         print(f"  {ticker} 前复权基准变化，自动重建完整历史")
         ok, detail = run_command(f'python data_collector.py --ticker {ticker} --rebuild')
+    if item_name == 'margin_data' and not os.path.exists(file_path):
+        na_reason = margin_not_applicable(stock_dir, ticker, expected_date)
+        if na_reason:
+            print(f"  {filename}: {na_reason}，本项不适用，跳过")
+            return None
     if not ok or detail.startswith(STATUS_PREFIX):
         failure = f"{tag} {ticker} {item_name} ({filename}) 更新失败: {detail}"
         print(f"  ❌ {failure}")
@@ -867,13 +1008,24 @@ def _check_group(ticker, expected_date, files):
     stock_dir = os.path.join(DATA_DIR, ticker)
     os.makedirs(stock_dir, exist_ok=True)
     expected_date = expected_date or get_expected_trade_date([ticker])
+    global _COMMAND_RESULTS
     failures, items = [], {}
+    _COMMAND_RESULTS = {}
+    try:
+        return _check_group_items(ticker, expected_date, files, stock_dir, failures, items)
+    finally:
+        _COMMAND_RESULTS = None
+
+
+def _check_group_items(ticker, expected_date, files, stock_dir, failures, items):
+    total = len(files)
     # 执行任何子命令前，先将本组的旧证据标为失效。
     for name, (filename, _) in files.items():
         items[name] = {'valid': False, 'reason': '检查未完成', 'filename': filename.format(ticker=ticker)}
     write_evidence_state(ticker, expected_date, items)
-    for name, (filename, command) in files.items():
+    for index, (name, (filename, command)) in enumerate(files.items(), 1):
         filename = filename.format(ticker=ticker)
+        print(f"[{index}/{total}] 检查 {get_freshness_rule(name).get('desc', name)}（{filename}）", flush=True)
         try:
             failure = check_and_update_item(ticker, name, filename, command.format(ticker=ticker), expected_date, stock_dir)
         except Exception as exc:
@@ -884,6 +1036,12 @@ def _check_group(ticker, expected_date, files):
         items[name] = {'valid': not bool(failure), 'reason': failure or '', 'filename': filename,
                        'sha256': source_digest(os.path.join(stock_dir, filename)),
                        'checked_at': datetime.now().isoformat()}
+        if (not failure and name == 'margin_data'
+                and not os.path.exists(os.path.join(stock_dir, filename))):
+            na_reason = margin_not_applicable(stock_dir, ticker, expected_date)
+            if na_reason:
+                # 明确标注「不适用」而非伪造来源：决策层据此允许该维度缺少两融子项
+                items[name].update(not_applicable=True, reason=na_reason)
         write_evidence_state(ticker, expected_date, items)
     return failures
 

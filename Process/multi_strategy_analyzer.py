@@ -16,7 +16,12 @@ class MultiStrategyAnalyzer:
     def __init__(self, ticker, trading_mode='short'):
         self.ticker = ticker
         self.trading_mode = trading_mode  # short, medium, long
-        self.data_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data', ticker)
+        try:
+            from config import DATA_DIR as _cfg_data_dir
+            base_data_dir = _cfg_data_dir
+        except Exception:
+            base_data_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data')
+        self.data_dir = os.path.join(base_data_dir, ticker)
         
         # 五维度数据
         self.analysis_data = {
@@ -632,8 +637,10 @@ class MultiStrategyAnalyzer:
                 if m not in models_to_try:
                     models_to_try.append(m)
             
-            print(f"正在请求本地Ollama AI...")
-            print(f"  - 服务地址: {base_url}")
+            from user_settings import describe_ai_backend
+            print(f"正在请求 {describe_ai_backend(ai_config)}...")
+            if ai_config.get('provider') != 'api':
+                print(f"  - 服务地址: {base_url}")
             print(f"  - 将尝试 {len(models_to_try)} 个模型: {models_to_try}")
             
             client = ollama.Client(host=base_url)
@@ -677,7 +684,8 @@ class MultiStrategyAnalyzer:
             return self._generate_programmatic_fallback_analysis()
             
         except Exception as e:
-            print(f"  ❌ 调用本地Ollama AI时出错: {e}")
+            from user_settings import describe_ai_backend
+            print(f"  ❌ 调用 {describe_ai_backend(ai_config)} 时出错: {e}")
             print(f"  - 使用程序化分析作为备用方案")
             return self._generate_programmatic_fallback_analysis()
     
@@ -876,17 +884,23 @@ if __name__ == "__main__":
     # 动态导入配置
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     config_path = os.path.join(project_root, 'config.py')
-    trading_records_path = os.path.join(project_root, 'trading_records.py')
+    try:
+        import app_paths as _ap
+        trading_records_path = _ap.get_trading_records_file()
+    except Exception:
+        trading_records_path = os.path.join(project_root, 'trading_records.py')
     
     spec = importlib.util.spec_from_file_location("config_module", config_path)
     config_module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(config_module)
     AI_CONFIG = config_module.AI_CONFIG
     
-    spec2 = importlib.util.spec_from_file_location("trading_records_module", trading_records_path)
-    trading_records_module = importlib.util.module_from_spec(spec2)
-    spec2.loader.exec_module(trading_records_module)
-    TRADING_RECORDS = trading_records_module.TRADING_RECORDS
+    TRADING_RECORDS = {}
+    if os.path.isfile(trading_records_path):
+        spec2 = importlib.util.spec_from_file_location("trading_records_module", trading_records_path)
+        trading_records_module = importlib.util.module_from_spec(spec2)
+        spec2.loader.exec_module(trading_records_module)
+        TRADING_RECORDS = getattr(trading_records_module, 'TRADING_RECORDS', {}) or {}
     
     # 创建分析器并运行
     analyzer = MultiStrategyAnalyzer(args.ticker, args.mode)

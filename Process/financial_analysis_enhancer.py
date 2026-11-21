@@ -97,7 +97,8 @@ class FinancialAnalysisEnhancer:
         try:
             import ollama
             
-            print(f"正在请求本地Ollama AI ({AI_CONFIG['model']})...")
+            from user_settings import describe_ai_backend
+            print(f"正在请求 {describe_ai_backend(AI_CONFIG)}...")
             
             client = ollama.Client(host=AI_CONFIG['base_url'])
             

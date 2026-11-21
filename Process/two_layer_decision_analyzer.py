@@ -26,7 +26,12 @@ class TwoLayerDecisionAnalyzer:
         self.trading_plan = None
         self.first_prompt = None
         self.second_prompt = None
-        self.data_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data', ticker)
+        try:
+            from config import DATA_DIR as _cfg_data_dir
+            base_data_dir = _cfg_data_dir
+        except Exception:
+            base_data_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data')
+        self.data_dir = os.path.join(base_data_dir, ticker)
         self.strategy_prompt = None  # 交易策略提示
 
     def _report_evidence_error(self, report_type, report, state, expected_date):
@@ -65,6 +70,10 @@ class TwoLayerDecisionAnalyzer:
                 filename = item.get('filename', '')
                 if not filename or os.path.basename(filename) != filename:
                     return f'{name} 来源路径无效'
+                if (item.get('not_applicable') is True and name == 'margin_data'
+                        and not os.path.exists(os.path.join(self.data_dir, filename))):
+                    # 非融资融券标的：数据检查已确认该子项不适用，不能因此否决整个情绪维度
+                    continue
                 if not item.get('sha256') or source_digest(os.path.join(self.data_dir, filename)) != item['sha256']:
                     return f'{name} 来源已变化，报告身份不可核验'
                 try:
@@ -425,37 +434,56 @@ class TwoLayerDecisionAnalyzer:
             if total_shares > 0:
                 position_info['avg_cost'] = total_cost / total_shares
 
-            position_info['current_price'] = self._get_current_price()
+        position_info['current_price'] = self._get_current_price()
 
-            if position_info['avg_cost'] > 0 and position_info['current_price'] > 0:
-                position_info['unrealized_pnl_pct'] = (position_info['current_price'] - position_info['avg_cost']) / position_info['avg_cost'] * 100
+        if position_info['avg_cost'] > 0 and position_info['current_price'] > 0:
+            position_info['unrealized_pnl_pct'] = (position_info['current_price'] - position_info['avg_cost']) / position_info['avg_cost'] * 100
 
         return position_info
 
     def _get_current_price(self):
-        """获取当前价格"""
+        """获取当前价格（优先读取估值表收盘价，缺失或无效时回退前复权行情）"""
         valuation_file = os.path.join(self.data_dir, f"{self.ticker}_valuation.csv")
-
         if os.path.exists(valuation_file):
             try:
                 df = pd.read_csv(valuation_file)
                 if not df.empty:
-                    return df.iloc[-1].get('当日收盘价', df.iloc[-1].get('close', df.iloc[-1].get('收盘价', 0)))
-            except:
+                    last = df.iloc[-1]
+                    for col in ('当日收盘价', 'close', '收盘价', 'Close'):
+                        if col in last and pd.notna(last[col]):
+                            price = float(last[col])
+                            if price > 0:
+                                return price
+            except Exception:
+                pass
+
+        qfq_file = os.path.join(self.data_dir, f"{self.ticker}_qfq.csv")
+        if os.path.exists(qfq_file):
+            try:
+                df = pd.read_csv(qfq_file)
+                if not df.empty:
+                    last = df.iloc[-1]
+                    for col in ('close', '收盘价', 'Close'):
+                        if col in last and pd.notna(last[col]):
+                            price = float(last[col])
+                            if price > 0:
+                                return price
+            except Exception:
                 pass
 
         return 0
 
     def get_ai_analysis(self, prompt, ai_config):
-        """获取本地Ollama AI分析结果"""
+        """调用已配置的 AI 后端（云端 API 或本地 Ollama）获取分析结果"""
         try:
             import ollama
+            from user_settings import describe_ai_backend, format_ai_error_hint
 
             model = ai_config.get('model', 'qwen3.5:35b')
             temperature = ai_config.get('temperature', 0.3)
             max_tokens = ai_config.get('max_tokens', 4000)
 
-            print(f"正在请求本地Ollama AI ({model})...")
+            print(f"正在请求 {describe_ai_backend(ai_config)}...")
             client = ollama.Client(host=ai_config.get('base_url', 'http://localhost:11434'))
 
             response = client.chat(
@@ -472,8 +500,9 @@ class TwoLayerDecisionAnalyzer:
 
             return response['message']['content']
         except Exception as e:
-            print(f"调用本地Ollama AI时出错: {str(e)}")
-            return f"无法获取AI分析，请检查Ollama服务是否正常运行。错误: {str(e)}"
+            from user_settings import describe_ai_backend, format_ai_error_hint
+            print(f"调用 {describe_ai_backend(ai_config)} 时出错: {str(e)}")
+            return format_ai_error_hint(ai_config, e)
 
     def save_first_prompt(self):
         """保存第一层提示词（调用LLM前）"""
@@ -657,17 +686,23 @@ if __name__ == "__main__":
 
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     config_path = os.path.join(project_root, 'config.py')
-    trading_records_path = os.path.join(project_root, 'trading_records.py')
+    try:
+        import app_paths as _ap
+        trading_records_path = _ap.get_trading_records_file()
+    except Exception:
+        trading_records_path = os.path.join(project_root, 'trading_records.py')
 
     spec = importlib.util.spec_from_file_location("config_module", config_path)
     config_module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(config_module)
     AI_CONFIG = config_module.AI_CONFIG
 
-    spec2 = importlib.util.spec_from_file_location("trading_records_module", trading_records_path)
-    trading_records_module = importlib.util.module_from_spec(spec2)
-    spec2.loader.exec_module(trading_records_module)
-    TRADING_RECORDS = trading_records_module.TRADING_RECORDS
+    TRADING_RECORDS = {}
+    if os.path.isfile(trading_records_path):
+        spec2 = importlib.util.spec_from_file_location("trading_records_module", trading_records_path)
+        trading_records_module = importlib.util.module_from_spec(spec2)
+        spec2.loader.exec_module(trading_records_module)
+        TRADING_RECORDS = getattr(trading_records_module, 'TRADING_RECORDS', {}) or {}
 
     analyzer = TwoLayerDecisionAnalyzer(args.ticker)
     analyzer.run_analysis(AI_CONFIG, TRADING_RECORDS)

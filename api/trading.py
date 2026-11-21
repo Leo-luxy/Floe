@@ -85,25 +85,24 @@ def _resolve_latest_quote(ticker, allow_remote=True):
             except Exception:
                 pass
 
-    # 2. 尝试轻量实时行情（东方财富 push2 fltt=2，停牌或集合竞价前取昨收 f60）
+    # 2. 尝试轻量实时行情（统一经由 data_hub 东财 -> 腾讯 -> 新浪多源自动切换）
     if allow_remote and re.fullmatch(r'\d{6}\.(SH|SZ)', ticker):
-        code6, market = ticker.split('.')
-        secid = f"{'1' if market == 'SH' else '0'}.{code6}"
-        url = f'https://push2.eastmoney.com/api/qt/stock/get?secid={secid}&fltt=2&invt=2&fields=f43,f58,f60'
         try:
-            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-            with urllib.request.urlopen(req, timeout=1.5) as resp:
-                data = (json.loads(resp.read().decode('utf-8', errors='ignore')).get('data') or {})
-            if not name and data.get('f58') and data.get('f58') != '-':
-                name = str(data['f58']).strip()
-            for field, tag in (('f43', '实时现价'), ('f60', '昨收价')):
-                val = data.get(field)
-                if val is not None and val != '-':
-                    fval = float(val)
-                    if fval > 0:
-                        price = fval
-                        source = tag
-                        break
+            import app_paths as _ap_ssl
+            _ap_ssl.ensure_ssl_certificates()
+        except Exception:
+            pass
+        try:
+            import data_hub
+            quote = data_hub.fetch("stock_realtime_quote", ticker=ticker, require_price=True)
+            if isinstance(quote, dict):
+                q_name = str(quote.get("name") or "").strip()
+                if not name and q_name and q_name != '-':
+                    name = q_name
+                q_price = quote.get("price")
+                if q_price is not None and float(q_price) > 0:
+                    price = float(q_price)
+                    source = str(quote.get("price_tag") or "实时现价")
         except Exception:
             pass
 

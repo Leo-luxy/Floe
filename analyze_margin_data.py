@@ -504,7 +504,8 @@ def get_ai_analysis(prompt):
         temperature = AI_CONFIG['temperature']
         max_tokens = AI_CONFIG['max_tokens']
         
-        print(f"正在请求本地Ollama AI ({model})...")
+        from user_settings import describe_ai_backend
+        print(f"正在请求 {describe_ai_backend(AI_CONFIG)}...")
         # 配置Ollama客户端使用localhost
         client = ollama.Client(host=AI_CONFIG['base_url'])
         
@@ -520,10 +521,14 @@ def get_ai_analysis(prompt):
             }
         )
         
-        return response['message']['content']
+        content = (response.get('message') or {}).get('content') or ''
+        if not str(content).strip():
+            raise RuntimeError("AI 返回内容为空")
+        return content
     except Exception as e:
-        print(f"调用本地Ollama AI时出错: {str(e)}")
-        return "无法获取AI分析，请检查Ollama服务是否正常运行。"
+        from user_settings import describe_ai_backend, format_ai_error_hint
+        print(f"调用 {describe_ai_backend(AI_CONFIG)} 时出错: {str(e)}")
+        return format_ai_error_hint(AI_CONFIG, e)
 
 def save_prompt(ticker, prompt):
     """保存提示词到本地文件"""

@@ -18,6 +18,13 @@ import argparse
 from datetime import datetime, timedelta
 
 # 导入配置
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+try:
+    from net_guard import apply_collector_socket_timeout, ensure_network_ready
+    ensure_network_ready()
+except Exception:
+    apply_collector_socket_timeout = None
+
 from config import DATA_DIR, STOCK_TICKERS
 
 
@@ -57,12 +64,11 @@ def get_stock_valuation_data(ticker):
             print(f"读取本地估值数据时出错: {str(e)}")
     
     try:
-        time.sleep(random.uniform(2, 4))  # 随机间隔2-4秒
-        
-        # 尝试使用stock_value_em获取估值指标
+        import data_hub
+        # 统一经由 data_hub 获取估值指标（东财 -> 乐咕自动降级）
         try:
-            valuation_df = ak.stock_value_em(symbol=code)
-            if not valuation_df.empty:
+            valuation_df = data_hub.fetch("stock_valuation", ticker=ticker)
+            if valuation_df is not None and not valuation_df.empty:
                 # 处理日期列
                 date_columns = [col for col in valuation_df.columns if 'date' in col.lower() or '日期' in col]
                 if date_columns:
@@ -101,51 +107,8 @@ def get_stock_valuation_data(ticker):
                 print(f"未获取到 {ticker} 的估值数据")
                 return None
         except Exception as e1:
-            print(f"使用stock_value_em获取估值指标时出错: {str(e1)}")
-            # 如果失败，尝试使用stock_a_pe
-            try:
-                pe_df = ak.stock_a_pe(symbol=code)
-                if not pe_df.empty:
-                    # 处理日期列
-                    date_columns = [col for col in pe_df.columns if 'date' in col.lower() or '日期' in col]
-                    if date_columns:
-                        date_col = date_columns[0]
-                        try:
-                            pe_df[date_col] = pd.to_datetime(pe_df[date_col])
-                            
-                            # 如果有本地数据，只保留新数据
-                            if last_date:
-                                new_data = pe_df[pe_df[date_col] > last_date]
-                                if not new_data.empty:
-                                    # 追加到现有文件
-                                    new_data.to_csv(output_file, mode='a', header=False, index=False, encoding='utf-8-sig')
-                                    print(f"估值数据已追加到: {output_file}")
-                                    print(f"共追加 {len(new_data)} 条数据")
-                                else:
-                                    print("估值数据已是最新，无需更新")
-                            else:
-                                # 首次保存
-                                pe_df.to_csv(output_file, index=False, encoding='utf-8-sig')
-                                print(f"估值数据已保存到: {output_file}")
-                                print(f"共获取 {len(pe_df)} 条数据")
-                        except Exception as e:
-                            print(f"处理估值数据日期时出错: {str(e)}")
-                            # 如果日期处理失败，直接覆盖保存
-                            pe_df.to_csv(output_file, index=False, encoding='utf-8-sig')
-                            print(f"估值数据已保存到: {output_file}")
-                            print(f"共获取 {len(pe_df)} 条数据")
-                    else:
-                        # 没有日期列，直接覆盖保存
-                        pe_df.to_csv(output_file, index=False, encoding='utf-8-sig')
-                        print(f"估值数据已保存到: {output_file}")
-                        print(f"共获取 {len(pe_df)} 条数据")
-                    return pe_df
-                else:
-                    print(f"未获取到 {ticker} 的估值数据")
-                    return None
-            except Exception as e2:
-                print(f"使用stock_a_pe获取估值指标时出错: {str(e2)}")
-                return None
+            print(f"使用 data_hub 获取估值指标失败（主备通道均不可用）: {str(e1)}")
+            return None
     except Exception as e:
         print(f"获取估值数据时出错: {str(e)}")
         return None
@@ -188,10 +151,9 @@ def get_stock_fund_flow_data(ticker):
             print(f"读取本地资金流数据时出错: {str(e)}")
     
     try:
-        time.sleep(random.uniform(2, 4))  # 随机间隔2-4秒
-        
-        fund_flow_df = ak.stock_individual_fund_flow(stock=code, market=market)
-        if not fund_flow_df.empty:
+        import data_hub
+        fund_flow_df = data_hub.fetch("stock_fund_flow", ticker=ticker)
+        if fund_flow_df is not None and not fund_flow_df.empty:
             # 处理日期列
             date_columns = [col for col in fund_flow_df.columns if 'date' in col.lower() or '日期' in col]
             if date_columns:
@@ -237,6 +199,12 @@ def get_stock_fund_flow_data(ticker):
 def main():
     """主函数"""
     # 解析命令行参数
+    try:
+        from net_guard import apply_collector_socket_timeout
+        # akshare 资金流/估值接口未设超时，对端不响应时会无限挂起
+        apply_collector_socket_timeout(25)
+    except Exception:
+        pass
     parser = argparse.ArgumentParser(description='收集股票估值和资金流数据')
     parser.add_argument('--ticker', type=str, help='指定股票代码，例如：300433.SZ')
     args = parser.parse_args()

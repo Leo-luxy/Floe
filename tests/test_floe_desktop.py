@@ -321,30 +321,559 @@ class FloeDesktopAndSettingsTest(unittest.TestCase):
             def read(self):
                 return b'{"tag_name": "v2.0.1"}'
 
-        captured_tunnel = {}
+        captured_proxy = {}
 
         class _FakeOpener:
             def open(self, req_obj, timeout=None):
-                captured_tunnel['host'] = req_obj.host
-                captured_tunnel['tunnel'] = getattr(req_obj, '_tunnel_host', None)
+                captured_proxy['url'] = req_obj.full_url
                 return _ProxyResp()
+
+        def _fake_build_opener(*handlers):
+            for h in handlers:
+                if hasattr(h, 'proxies'):
+                    captured_proxy['proxies'] = dict(h.proxies)
+            return _FakeOpener()
 
         net_guard.reconfigure_network_mode('direct')
         self.assertEqual(os.environ.get('no_proxy'), '*')
 
+        # 刻意传入 Windows 注册表常见的错误 https://127.0.0.1:10808 格式，验证自动纠正为 http:// 隧道
         req = urllib.request.Request('https://api.github.com/repos/Leo-luxy/Floe/releases/latest')
         with mock.patch('urllib.request.urlopen', side_effect=urllib.error.URLError(TimeoutError('timed out'))), \
-             mock.patch.object(net_guard, '_raw_system_proxy_dict', return_value={'https': 'http://127.0.0.1:10808'}), \
+             mock.patch.object(net_guard, '_raw_system_proxy_dict', return_value={'https': 'https://127.0.0.1:10808'}), \
              mock.patch.object(net_guard, '_reachable', return_value=True), \
-             mock.patch('urllib.request.build_opener', return_value=_FakeOpener()):
+             mock.patch('urllib.request.build_opener', side_effect=_fake_build_opener):
             with net_guard.urlopen_with_optional_proxy(req, timeout=3.0) as resp:
                 payload = json.loads(resp.read().decode('utf-8'))
 
         self.assertEqual(payload['tag_name'], 'v2.0.1')
-        self.assertEqual(captured_tunnel.get('host'), '127.0.0.1:10808')
-        self.assertEqual(captured_tunnel.get('tunnel'), 'api.github.com')
+        self.assertEqual(captured_proxy.get('url'), 'https://api.github.com/repos/Leo-luxy/Floe/releases/latest')
+        self.assertEqual(captured_proxy.get('proxies'), {
+            'http': 'http://127.0.0.1:10808',
+            'https': 'http://127.0.0.1:10808',
+        })
         # 全局必须继续保持国内直连保护，不污染 A 股数据源采集
         self.assertEqual(os.environ.get('no_proxy'), '*')
+
+    def test_domestic_cdn_update_fallback_and_multi_feed_diagnostics(self):
+        """验证纯国内无梯子网络下检查更新自动回退国内 CDN 版本源，以及行情网关单点 RemoteDisconnected 自动多源切换。"""
+        import http.client
+        import urllib.error
+        import web_ui
+        import net_guard
+
+        client = web_ui.app.test_client()
+
+        fake_ver_py = (
+            'APP_VERSION = "2.2.0"\n'
+            'RELEASE_CHANGELOG_ZH = "### Floe v2.2.0 更新\\n- 纯国内免代理检查更新"\n'
+            'RELEASE_CHANGELOG_EN = "### Floe v2.2.0\\n- Domestic CDN update check"\n'
+        ).encode('utf-8')
+
+        class _CdnResp:
+            status = 200
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                return False
+            def read(self):
+                return fake_ver_py
+
+        class _CdnOpener:
+            def open(self, req_obj, timeout=None):
+                return _CdnResp()
+
+        with mock.patch.object(net_guard, 'urlopen_with_optional_proxy', side_effect=urllib.error.URLError('network unreachable')), \
+             mock.patch('urllib.request.build_opener', return_value=_CdnOpener()):
+            upd = client.get('/api/settings/check_update').get_json()
+
+        self.assertTrue(upd['success'])
+        self.assertTrue(upd['has_update'])
+        self.assertEqual(upd['latest_version'], '2.2.0')
+        self.assertIsNotNone(upd['recommended_asset'])
+
+        # 模拟第 1 个行情网关抛 RemoteDisconnected，第 2 个网关正常返回 200
+        call_idx = {'n': 0}
+
+        class _OkFeedResp:
+            status = 200
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                return False
+
+        def _flaky_urlopen(req_obj, timeout=None):
+            call_idx['n'] += 1
+            if call_idx['n'] == 1:
+                raise http.client.RemoteDisconnected('Remote end closed connection without response')
+            return _OkFeedResp()
+
+        with mock.patch('urllib.request.urlopen', side_effect=_flaky_urlopen):
+            diag = client.get('/api/settings/diagnostics').get_json()
+
+        self.assertTrue(diag['success'])
+        market_chk = next(c for c in diag['checks'] if c['id'] == 'market_network')
+        self.assertTrue(market_chk['ok'], market_chk)
+        self.assertGreaterEqual(call_idx['n'], 2)
+
+    def test_frozen_selection_subprocesses_never_spawn_second_gui_window(self):
+        """回归测试：冻结态选股预检 collect_market 必须走 --run-script，且子进程守卫阻止嵌套弹出第二个应用窗口。"""
+        import stocks_filter.batch_backtest_filter as bbf
+
+        captured_calls = []
+
+        def _fake_run(cmd, *args, **kwargs):
+            captured_calls.append((cmd, kwargs.get('env') or {}))
+            return subprocess.CompletedProcess(cmd, 0, stdout='ok', stderr='')
+
+        fake_frozen_exe = '/Applications/Floe.app/Contents/MacOS/floe'
+        with mock.patch.object(sys, 'frozen', True, create=True), \
+             mock.patch.object(sys, 'executable', fake_frozen_exe), \
+             mock.patch.object(bbf.subprocess, 'run', side_effect=_fake_run):
+            bbf.collect_market('002939.SZ')
+
+        self.assertEqual(len(captured_calls), 1)
+        issued_cmd, issued_env = captured_calls[0]
+        self.assertIn('--run-script', issued_cmd)
+        self.assertIn('data_collector.py', issued_cmd)
+        self.assertEqual(issued_env.get('FLOE_SUBPROCESS'), '1')
+
+        # 防线验证 1：当 FLOE_SUBPROCESS=1 的子进程意外未带脚本参数调用 floe_app.py 时，必须立即返回码 2 拒绝启动新窗口
+        launcher = str(PROJECT_ROOT / 'floe_app.py')
+        nested_env = os.environ.copy()
+        nested_env['FLOE_SUBPROCESS'] = '1'
+        nested_proc = subprocess.run(
+            [sys.executable, launcher, '--dev'],
+            capture_output=True,
+            text=True,
+            env=nested_env,
+            timeout=10,
+        )
+        self.assertEqual(nested_proc.returncode, 2)
+        self.assertIn('Refusing to launch nested GUI/server', nested_proc.stderr)
+
+        # 防线验证 2：模拟冻结态下漏传 --run-script、直接传 bare .py 脚本时，_dispatch_internal_script 仍自动接管不弹窗
+        with tempfile.TemporaryDirectory() as tmp:
+            bare_script = pathlib.Path(tmp) / 'bare_job.py'
+            bare_script.write_text('import sys\nprint("BARE_OK:" + ",".join(sys.argv[1:]))\n', encoding='utf-8')
+            shim = (
+                'import sys\n'
+                'sys.frozen = True\n'
+                f'sys.argv = ["floe", {str(bare_script)!r}, "--ticker", "002939.SZ"]\n'
+                'import floe_app\n'
+            )
+            shim_proc = subprocess.run(
+                [sys.executable, '-c', shim],
+                cwd=str(PROJECT_ROOT),
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            self.assertEqual(shim_proc.returncode, 0, shim_proc.stderr)
+            self.assertIn('BARE_OK:--ticker,002939.SZ', shim_proc.stdout)
+
+    def test_step2_daily_basic_fallback_and_selection_log_preservation(self):
+        """验证 Tushare 免费账号无 daily_basic 2000 积分权限时的同日全集备用补齐、跨日拦截，以及选股失败日志不丢失。"""
+        import pandas as pd
+        import api.stock_selection as sel_api
+        import stocks_filter.step2_daily_basic as step2
+
+        self.assertTrue(step2.is_permission_error(Exception('抱歉，您没有访问该接口的权限，权限的具体详情访问：https://tushare.pro/document/1?doc_id=108')))
+
+        df_daily = pd.DataFrame([
+            {'ts_code': '000001.SZ', 'trade_date': '20261120', 'vol': 120000.0},
+            {'ts_code': '600519.SH', 'trade_date': '20261120', 'vol': 35000.0},
+        ])
+
+        def _build_gtimg_line(sym, ts_stamp, turnover, pe_ttm, circ_yi, total_yi, pb, vol_ratio):
+            fields = [''] * 55
+            fields[30] = ts_stamp
+            fields[38] = str(turnover)
+            fields[39] = str(pe_ttm)
+            fields[44] = str(circ_yi)
+            fields[45] = str(total_yi)
+            fields[46] = str(pb)
+            fields[49] = str(vol_ratio)
+            return f'v_{sym}="' + '~'.join(fields) + '";'
+
+        fake_body_ok = (
+            _build_gtimg_line('sz000001', '20261120161500', '3.25', '6.1', '2100.0', '2200.5', '0.65', '1.18')
+            + _build_gtimg_line('sh600519', '20261120161500', '2.40', '22.5', '18000.0', '18500.0', '7.20', '1.05')
+        )
+
+        class _FakeHTTPResp:
+            def __init__(self, text):
+                self.text = text
+                self.encoding = 'gbk'
+            def raise_for_status(self):
+                return None
+
+        class _FakeSession:
+            def __init__(self, text):
+                self.text = text
+            def get(self, url, timeout=12):
+                return _FakeHTTPResp(self.text)
+
+        # 1. 同交易日且 100% 覆盖全部代码：应成功返回并精确换算总市值（亿元 -> 万元）
+        fb_ok, err_ok = step2.fetch_gtimg_daily_basic_same_date(
+            '20261120', df_daily, session_factory=lambda: _FakeSession(fake_body_ok)
+        )
+        self.assertIsNotNone(fb_ok, err_ok)
+        self.assertEqual(len(fb_ok), 2)
+        row_sz = fb_ok[fb_ok['ts_code'] == '000001.SZ'].iloc[0]
+        self.assertAlmostEqual(float(row_sz['turnover_rate']), 3.25)
+        self.assertAlmostEqual(float(row_sz['total_mv']), 2200.5 * 10000.0)
+
+        # 2. 请求历史回退日 20261119，但实时网关已是 20261120：必须严格拒绝跨日混用
+        fb_mismatch, err_mismatch = step2.fetch_gtimg_daily_basic_same_date(
+            '20261119', df_daily, session_factory=lambda: _FakeSession(fake_body_ok)
+        )
+        self.assertIsNone(fb_mismatch)
+        self.assertIn('禁止跨日混用', err_mismatch)
+
+        # 3. 选股子进程失败时，详细报错行不得被 messages.copy() 覆盖清空，且状态文件须更新为 failed
+        with tempfile.TemporaryDirectory() as tmp_sel:
+            with mock.patch.object(sel_api, 'SELECTION_DIR', tmp_sel):
+                def _fake_step_runner(tid, cmd, cwd, desc):
+                    sel_api.selection_tasks[tid]['messages'].append('子进程真实报错详情：Tushare token 无效')
+                    return 2
+
+                with mock.patch.object(sel_api, 'run_command_with_output', side_effect=_fake_step_runner):
+                    sel_api.run_selection('test_log_keep', True, False)
+
+                task_info = sel_api.selection_tasks['test_log_keep']
+                self.assertEqual(task_info['status'], 'failed')
+                joined_msgs = '\n'.join(task_info['messages'])
+                self.assertIn('子进程真实报错详情：Tushare token 无效', joined_msgs)
+
+                with open(os.path.join(tmp_sel, 'final_holdings_status.json'), encoding='utf-8') as fh:
+                    st_disk = json.load(fh)
+                self.assertEqual(st_disk.get('state'), 'failed')
+
+    def test_cross_client_readonly_bundle_and_quote_fallbacks(self):
+        """跨客户端审计回归测试：新设备缺失申万目录不崩溃、两层决策读写隔离数据目录、东财断连时关注池与台账自动兜底腾讯行情。"""
+        import config
+        import api.settings as set_api
+        import api.trading as tr_api
+        import api.watchlist as wl_api
+        from Process.multi_strategy_analyzer import MultiStrategyAnalyzer
+        from Process.two_layer_decision_analyzer import TwoLayerDecisionAnalyzer
+        from shenwan_config.shenwan_industry_thresholds import ShenwanIndustryThresholds
+
+        with tempfile.TemporaryDirectory() as isolated_data:
+            # 1. 新安装设备尚无 shenwan_industry 目录：不得抛出 FileNotFoundError
+            missing_sw_dir = os.path.join(isolated_data, 'shenwan_industry_not_created_yet')
+            sw = ShenwanIndustryThresholds(data_dir=missing_sw_dir)
+            self.assertEqual(sw.industry_averages, {})
+
+            # 2. 两层决策与多策略分析器必须跟随 config.DATA_DIR（用户隔离目录），绝不写入只读应用包
+            with mock.patch.object(config, 'DATA_DIR', isolated_data):
+                tla = TwoLayerDecisionAnalyzer('300433.SZ')
+                msa = MultiStrategyAnalyzer('300433.SZ')
+                self.assertEqual(os.path.abspath(tla.data_dir), os.path.abspath(os.path.join(isolated_data, '300433.SZ')))
+                self.assertEqual(os.path.abspath(msa.data_dir), os.path.abspath(os.path.join(isolated_data, '300433.SZ')))
+
+            # 3. 东方财富 push2 被断连时，关注池简称查询与交易台账现价查询自动回退腾讯行情
+            class _FakeGtResp:
+                def __enter__(self):
+                    return self
+                def __exit__(self, *args):
+                    return False
+                def read(self):
+                    return 'v_sz002939="51~长城证券~002939~8.65~8.50~8.52~";'.encode('gbk')
+
+            def _mock_urlopen(req, timeout=None):
+                url = req.full_url if hasattr(req, 'full_url') else str(req)
+                if 'eastmoney.com' in url:
+                    raise ConnectionResetError('RemoteDisconnected')
+                if 'qt.gtimg.cn' in url:
+                    return _FakeGtResp()
+                raise RuntimeError(f'Unexpected URL: {url}')
+
+            with mock.patch.object(wl_api, 'DATA_DIR', isolated_data), \
+                 mock.patch.object(tr_api, 'DATA_DIR', isolated_data), \
+                 mock.patch.object(wl_api, 'load_watchlist', return_value=[]), \
+                 mock.patch('urllib.request.urlopen', side_effect=_mock_urlopen):
+                resolved_name = wl_api.resolve_stock_name('002939.SZ', allow_remote=True)
+                self.assertEqual(resolved_name, '长城证券')
+
+                q_name, q_price, q_src = tr_api._resolve_latest_quote('002939.SZ', allow_remote=True)
+                self.assertEqual(q_name, '长城证券')
+                self.assertAlmostEqual(float(q_price), 8.65)
+                self.assertEqual(q_src, '实时现价')
+
+            # 4. Linux 客户端在检查更新合成列表中优先匹配 .AppImage
+            with mock.patch.object(sys, 'platform', 'linux'), \
+                 mock.patch('platform.machine', return_value='x86_64'):
+                picked = set_api._match_platform_asset([
+                    {'name': 'Floe-v2.0.2-linux-x64.tar.gz', 'browser_download_url': 'https://example.com/a.tar.gz', 'size': 0},
+                    {'name': 'Floe-v2.0.2-linux-x86_64.AppImage', 'browser_download_url': 'https://example.com/a.AppImage', 'size': 0},
+                ])
+                self.assertEqual(picked['name'], 'Floe-v2.0.2-linux-x86_64.AppImage')
+
+    def test_mini_racer_dependency_pin_and_no_v8_qfq_fallback(self):
+        """回归测试：requirements.txt 严禁出现覆盖损坏 Windows V8 引擎的旧包 py_mini_racer，且 V8 受限时自动回退纯 JSON 前复权。"""
+        import pandas as pd
+        import data_collector as dc
+
+        req_lines = [
+            ln.split('#', 1)[0].strip()
+            for ln in (PROJECT_ROOT / 'requirements.txt').read_text(encoding='utf-8').splitlines()
+        ]
+        req_lines = [ln for ln in req_lines if ln]
+        self.assertNotIn('py_mini_racer', req_lines)
+        self.assertNotIn('py-mini-racer', req_lines)
+        self.assertTrue(any(ln.startswith('mini-racer') for ln in req_lines))
+
+        fake_em_raw = pd.DataFrame([
+            {
+                '日期': '2026-11-20',
+                '开盘': 4.50,
+                '收盘': 4.68,
+                '最高': 4.72,
+                '最低': 4.48,
+                '成交量': 500000,       # 50万手 -> 5000万股
+                '成交额': 230000000.0,
+                '换手率': 2.50,         # 2.50% -> 0.025
+            }
+        ])
+
+        with mock.patch.object(dc, 'stock_zh_a_daily', side_effect=ImportError('LibNotFoundError: mini_racer.dll')), \
+             mock.patch('akshare.stock_zh_a_hist', return_value=fake_em_raw):
+            out = dc._fetch_qfq_history('sz000100', '20261101', '20261120')
+
+        self.assertEqual(len(out), 1)
+        self.assertEqual(list(out.columns), [
+            'date', 'open', 'high', 'low', 'close', 'volume', 'amount', 'outstanding_share', 'turnover'
+        ])
+        self.assertAlmostEqual(float(out.iloc[0]['close']), 4.68)
+        self.assertAlmostEqual(float(out.iloc[0]['volume']), 500000 * 100.0)
+        self.assertAlmostEqual(float(out.iloc[0]['turnover']), 0.025)
+
+    def test_cloud_llm_long_timeout_not_truncated_and_https_proxy_tunnel_preserved(self):
+        """回归测试：云端 DeepSeek 180s 长超时在本机代理存在时不得被截断为 3s；直连不可达时 HTTPS 隧道保持 https 协议。"""
+        import urllib.request
+        import net_guard
+        import user_settings as us
+
+        net_guard.reconfigure_network_mode('direct')
+        seen_timeouts = []
+
+        class _OkLlmResp:
+            status = 200
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                return False
+            def read(self):
+                return b'{"choices":[{"message":{"content":"ok"}}]}'
+
+        def _capture_urlopen(req_obj, timeout=None):
+            seen_timeouts.append(timeout)
+            return _OkLlmResp()
+
+        req = urllib.request.Request('https://api.deepseek.com/chat/completions', data=b'{}', method='POST')
+        with mock.patch.object(net_guard, '_raw_system_proxy_dict', return_value={'https': 'http://127.0.0.1:7897'}), \
+             mock.patch.object(net_guard, '_reachable', return_value=True), \
+             mock.patch('urllib.request.urlopen', side_effect=_capture_urlopen):
+            with net_guard.urlopen_with_optional_proxy(req, timeout=180) as resp:
+                self.assertIn(b'choices', resp.read())
+        self.assertEqual(seen_timeouts, [180])
+
+        # 当直连 TCP 不可达时，走显式代理构建器，且 HTTPS 请求保持 set_proxy(hostport, 'https')
+        seen_proxy_calls = []
+
+        class _MockReq:
+            def __init__(self):
+                self.type = 'https'
+                self.host = 'api.deepseek.com'
+                self.full_url = 'https://api.deepseek.com/chat/completions'
+                self._tunnel_host = None
+                self.timeout = 180
+
+            def add_header(self, k, v):
+                pass
+
+            def set_proxy(self, hostport, p_type):
+                seen_proxy_calls.append((hostport, p_type))
+                self._tunnel_host = self.host
+                self.host = hostport
+
+        captured_handlers = []
+
+        class _OkOpener:
+            def open(self, r_obj, timeout=None):
+                seen_timeouts.append(('proxy', timeout))
+                return _OkLlmResp()
+
+        def _fake_opener(*handlers):
+            captured_handlers.extend(handlers)
+            return _OkOpener()
+
+        with mock.patch.object(net_guard, '_raw_system_proxy_dict', return_value={'https': 'http://127.0.0.1:7897'}), \
+             mock.patch.object(net_guard, '_reachable', side_effect=lambda h, p, timeout=0.6: h == '127.0.0.1'), \
+             mock.patch('urllib.request.build_opener', side_effect=_fake_opener):
+            with net_guard.urlopen_with_optional_proxy(req, timeout=180) as resp:
+                self.assertIn(b'choices', resp.read())
+            proxy_handler = next(h for h in captured_handlers if hasattr(h, 'proxy_open'))
+            proxy_handler.proxy_open(_MockReq(), 'http://127.0.0.1:7897', 'https')
+
+        self.assertIn(('proxy', 180), seen_timeouts)
+        self.assertEqual(seen_proxy_calls, [('127.0.0.1:7897', 'https')])
+
+        # 验证云端 API 文案提示不再误导为检查 Ollama 服务
+        api_cfg = {'provider': 'api', 'api_base': 'https://api.deepseek.com', 'api_key': 'sk-test-123456', 'api_model': 'deepseek-chat'}
+        desc = us.describe_ai_backend(api_cfg)
+        err_hint = us.format_ai_error_hint(api_cfg, TimeoutError('read timed out'))
+        self.assertIn('云端 API', desc)
+        self.assertIn('deepseek-chat', desc)
+        self.assertNotIn('Ollama', err_hint)
+        self.assertIn('云端 API', err_hint)
+        self.assertIn('read timed out', err_hint)
+
+    def test_cloud_llm_omits_max_tokens_for_large_reports_and_retries_reasoning_truncation(self):
+        """回归测试：研报分析不硬塞 max_tokens=8192，空正文自动自愈重试并支持非标 400 回退。"""
+        import urllib.error
+        import user_settings as us
+
+        def _make_resp(payload_obj):
+            raw = json.dumps(payload_obj).encode('utf-8')
+
+            class _Resp:
+                status = 200
+                def __enter__(self):
+                    return self
+                def __exit__(self, *args):
+                    return False
+                def read(self):
+                    return raw
+            return _Resp()
+
+        sent_payloads = []
+        responses = [
+            # 1) 首次返回思考链截断空正文
+            _make_resp({
+                'model': 'deepseek-flash',
+                'choices': [{
+                    'finish_reason': 'length',
+                    'message': {'role': 'assistant', 'content': '', 'reasoning_content': 'long thinking...'},
+                }],
+            }),
+            # 2) 自愈重试后返回正常正文
+            _make_resp({
+                'model': 'deepseek-flash',
+                'choices': [{
+                    'finish_reason': 'stop',
+                    'message': {'role': 'assistant', 'content': '完整报告正文'},
+                }],
+            }),
+        ]
+
+        def _fake_cloud_urlopen(req, timeout=None):
+            sent_payloads.append(json.loads(req.data.decode('utf-8')))
+            return responses.pop(0)
+
+        with mock.patch.object(us, 'get_ui_language', return_value='zh-CN'), \
+             mock.patch.object(us, '_urlopen_cloud_api', side_effect=_fake_cloud_urlopen):
+            res = us.call_openai_compatible_chat(
+                api_base='https://api.deepseek.com',
+                api_key='sk-test-123456',
+                model='deepseek-flash',
+                messages=[{'role': 'user', 'content': '分析融资融券数据'}],
+                options={'temperature': 0.3, 'num_predict': 8192},
+            )
+
+        self.assertEqual(res['message']['content'], '完整报告正文')
+        self.assertEqual(len(sent_payloads), 2)
+        self.assertNotIn('max_tokens', sent_payloads[0])
+        self.assertNotIn('max_tokens', sent_payloads[1])
+        self.assertEqual(len(sent_payloads[1]['messages']), 2)
+        self.assertIn('精简中间计算', sent_payloads[1]['messages'][-1]['content'])
+
+        # 场景 B：两次均为空正文（思考耗尽上限），必须抛 RuntimeError 而非静默写空文件
+        exhausted_resps = [
+            _make_resp({
+                'model': 'deepseek-flash',
+                'choices': [{'finish_reason': 'length', 'message': {'content': '', 'reasoning_content': 'step 1'}}],
+            }),
+            _make_resp({
+                'model': 'deepseek-flash',
+                'choices': [{'finish_reason': 'length', 'message': {'content': '', 'reasoning_content': 'step 2'}}],
+            }),
+        ]
+        with mock.patch.object(us, 'get_ui_language', return_value='zh-CN'), \
+             mock.patch.object(us, '_urlopen_cloud_api', side_effect=lambda req, timeout=None: exhausted_resps.pop(0)):
+            with self.assertRaises(RuntimeError) as ctx:
+                us.call_openai_compatible_chat(
+                    api_base='https://api.deepseek.com',
+                    api_key='sk-test-123456',
+                    model='deepseek-flash',
+                    messages=[{'role': 'user', 'content': '分析资金流'}],
+                    options={'temperature': 0.3, 'num_predict': 8192},
+                )
+        self.assertIn('思考过程耗尽', str(ctx.exception))
+
+        # 场景 C：非标网关要求必传 max_tokens 返回 HTTP 400，应自动回退 max_tokens=8192 重试
+        fallback_payloads = []
+
+        def _fake_strict_gateway(req, timeout=None):
+            body = json.loads(req.data.decode('utf-8'))
+            fallback_payloads.append(body)
+            if 'max_tokens' not in body:
+                raise urllib.error.HTTPError(
+                    req.full_url, 400, 'Bad Request', {},
+                    io.BytesIO(b'{"error":{"message":"max_tokens is required"}}'),
+                )
+            return _make_resp({
+                'model': 'custom-model',
+                'choices': [{'finish_reason': 'stop', 'message': {'content': '网关回退成功'}}],
+            })
+
+        with mock.patch.object(us, 'get_ui_language', return_value='zh-CN'), \
+             mock.patch.object(us, '_urlopen_cloud_api', side_effect=_fake_strict_gateway):
+            res_fb = us.call_openai_compatible_chat(
+                api_base='https://example.invalid',
+                api_key='sk-test-123456',
+                model='custom-model',
+                messages=[{'role': 'user', 'content': '测试'}],
+                options={'temperature': 0.3, 'num_predict': 8192},
+            )
+        self.assertEqual(res_fb['message']['content'], '网关回退成功')
+        self.assertEqual(len(fallback_payloads), 2)
+        self.assertNotIn('max_tokens', fallback_payloads[0])
+        self.assertEqual(fallback_payloads[1].get('max_tokens'), 8192)
+
+    def test_valuation_analyzer_loads_company_basic_and_two_layer_gets_price_when_flat(self):
+        """回归测试：估值分析支持读取 _company_basic.json；两层决策空仓时仍填充当前价格（含 qfq 回退）。"""
+        import analyze_valuation_data as avd
+        from Process.two_layer_decision_analyzer import TwoLayerDecisionAnalyzer
+
+        with tempfile.TemporaryDirectory() as tmp:
+            ticker = '600519.SH'
+            stock_dir = os.path.join(tmp, ticker)
+            os.makedirs(stock_dir, exist_ok=True)
+            with open(os.path.join(stock_dir, f'{ticker}_company_basic.json'), 'w', encoding='utf-8') as f:
+                json.dump({'basic_info': {'公司简称': '贵州茅台'}}, f, ensure_ascii=False)
+            val_path = os.path.join(stock_dir, f'{ticker}_valuation.csv')
+            with open(val_path, 'w', encoding='utf-8') as f:
+                f.write('数据日期,当日收盘价,PE(TTM)\n2026-11-20,1520.5,24.1\n')
+            with open(os.path.join(stock_dir, f'{ticker}_qfq.csv'), 'w', encoding='utf-8') as f:
+                f.write('date,close\n2026-11-20,1519.8\n')
+
+            with mock.patch.object(avd, 'DATA_DIR', tmp):
+                info = avd.load_company_info(ticker)
+            self.assertIsNotNone(info)
+            self.assertEqual(info.get('basic_info', {}).get('公司简称'), '贵州茅台')
+
+            analyzer = TwoLayerDecisionAnalyzer(ticker)
+            analyzer.data_dir = stock_dir
+            pos_val = analyzer.get_position_info({})
+            self.assertAlmostEqual(float(pos_val['current_price']), 1520.5)
+
+            # 删除 _valuation.csv 后，验证空仓时回退读取 _qfq.csv 的 close
+            os.unlink(val_path)
+            pos_qfq = analyzer.get_position_info({})
+            self.assertAlmostEqual(float(pos_qfq['current_price']), 1519.8)
 
 
 if __name__ == '__main__':

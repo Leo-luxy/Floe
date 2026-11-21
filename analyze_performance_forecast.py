@@ -230,7 +230,8 @@ class PerformanceForecastAnalyzer:
 
 请提供详细、专业的分析，基于数据和量化指标，避免泛泛而谈。"""
 
-            print(f"正在请求本地Ollama AI ({AI_CONFIG['model']})...")
+            from user_settings import describe_ai_backend
+            print(f"正在请求 {describe_ai_backend(AI_CONFIG)}...")
             client = ollama.Client(host=AI_CONFIG['base_url'])
             
             response = client.chat(
@@ -247,8 +248,9 @@ class PerformanceForecastAnalyzer:
             
             return response['message']['content']
         except Exception as e:
-            print(f"调用本地Ollama AI时出错: {e}")
-            return "无法获取AI分析，请检查Ollama服务是否正常运行。"
+            from user_settings import describe_ai_backend, format_ai_error_hint
+            print(f"调用 {describe_ai_backend(AI_CONFIG)} 时出错: {e}")
+            return format_ai_error_hint(AI_CONFIG, e)
     
     def generate_report(self) -> str:
         """生成分析报告"""

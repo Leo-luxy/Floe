@@ -5,6 +5,7 @@
 # --mode periodic: 定期/低频数据分析（4 步）
 
 import os
+import subprocess
 import sys
 import time
 import argparse
@@ -18,14 +19,21 @@ PYTHON = sys.executable or 'python'
 
 def run_command(command, stock=None):
     """运行 shell 命令并计时，返回真实退出码（失败不再只打印"警告"）"""
-    # 步骤里写的是裸 python，这里统一换成当前解释器，避免解析到别的 conda 环境
-    if command.startswith('python '):
-        command = f'"{PYTHON}" ' + command[len('python '):]
+    # 步骤里写的是裸 python，这里统一换成当前解释器或冻结态 --run-script
+    env = None
+    try:
+        import app_paths as _ap
+        command = _ap.rewrite_shell_python_cmd(command)
+        env = _ap.subprocess_env()
+    except Exception:
+        if command.startswith('python '):
+            prefix = f'"{PYTHON}" --run-script ' if getattr(sys, 'frozen', False) else f'"{PYTHON}" '
+            command = prefix + command[len('python '):]
     if stock:
         print(f"\n=== 正在处理股票: {stock} ===")
     print(f"执行命令: {command}")
     start_time = time.time()
-    result = os.system(command)
+    result = subprocess.run(command, shell=True, env=env).returncode
     elapsed = time.time() - start_time
     print(f"执行时间: {elapsed:.2f}秒")
     if result != 0:

@@ -136,8 +136,12 @@ class PostUpdateReverifyTest(FreshnessTestBase):
         self.assertNotIn('命令成功但内容未更新', failures[0])
 
     def test_all_items_command_success_without_change_are_all_failures(self):
-        # 5 项都明显过期，命令都返回 0 但内容不动 → 5 项全部进入失败清单
-        self._prepare_daily(overrides={item: STALE_DAY for item in cdu.DAILY_DATA_FILES})
+        # 全部日更项都明显过期（按季度判定的 shareholder_num 设为一季前 2026-06-30），命令都返回 0 但内容不动 → 全部进入失败清单
+        overrides = {
+            item: (date(2026, 6, 30) if item == 'shareholder_num' else STALE_DAY)
+            for item in cdu.DAILY_DATA_FILES
+        }
+        self._prepare_daily(overrides=overrides)
         with mock.patch.object(cdu, 'run_command', return_value=(True, '')):
             with redirect_stdout(io.StringIO()):
                 failures = cdu.check_daily_data(TICKER, expected_date=EXPECTED)
@@ -210,10 +214,14 @@ class FreshnessLagTest(FreshnessTestBase):
         self.assertTrue(cdu.is_fresh(PREV_TRADE_DAY, EXPECTED, 'valuation')[0])
         self.assertFalse(cdu.is_fresh(PREV_TRADE_DAY, EXPECTED, 'qfq')[0])
         self.assertFalse(cdu.is_fresh(PREV_TRADE_DAY, EXPECTED, 'indicators')[0])
-        # 低频数据允许滞后 5 个交易日：2026-11-05 刚好差 5 个交易日
+        # 股东/机构/北向均按报告季度判定：2026-11-12 时三季报 2026-09-30 达标，季中临时更新 2026-10-20 同样达标，Q2 2026-06-30 判过期
+        self.assertTrue(cdu.is_fresh(date(2026, 9, 30), EXPECTED, 'shareholder_num')[0])
+        self.assertTrue(cdu.is_fresh(date(2026, 10, 20), EXPECTED, 'shareholder_num')[0])
+        self.assertFalse(cdu.is_fresh(date(2026, 6, 30), EXPECTED, 'shareholder_num')[0])
+        # 低频公司信息/分红仍允许滞后 5 个交易日：2026-11-05 刚好差 5 个交易日
         five_days_before = date(2026, 11, 5)
-        self.assertTrue(cdu.is_fresh(five_days_before, EXPECTED, 'shareholder_num')[0])
-        self.assertFalse(cdu.is_fresh(STALE_DAY, EXPECTED, 'shareholder_num')[0])
+        self.assertTrue(cdu.is_fresh(five_days_before, EXPECTED, 'company_basic')[0])
+        self.assertFalse(cdu.is_fresh(STALE_DAY, EXPECTED, 'company_basic')[0])
         # 周末不算交易日：周五到周一算滞后 1 个交易日
         self.assertEqual(cdu.trading_days_lag(date(2026, 11, 6), date(2026, 11, 9)), 1)
 
@@ -227,11 +235,12 @@ class FreshnessTableTest(FreshnessTestBase):
         self.assertEqual(rules['indicators']['max_lag_trading_days'], 0)
         for item in ('fund_flow', 'margin_data', 'valuation'):
             self.assertEqual(rules[item]['max_lag_trading_days'], 1, item)
-        for item in ('shareholder_num', 'shareholder', 'institutional'):
+        for item in ('company_basic', 'ex_dividend'):
             self.assertEqual(rules[item]['max_lag_trading_days'], 5, item)
-        self.assertEqual(rules['financial_indicators']['kind'], 'quarter')
-        self.assertEqual(rules['dupont']['kind'], 'quarter')
-        self.assertEqual(rules['financial_indicators']['max_lag_quarters'], 0)
+        for item in ('shareholder_num', 'shareholder', 'institutional', 'north_holdings',
+                     'financial_indicators', 'dupont'):
+            self.assertEqual(rules[item]['kind'], 'quarter', item)
+            self.assertEqual(rules[item]['max_lag_quarters'], 0, item)
 
     def test_same_content_date_judged_by_table(self):
         fund_path = self._write_csv(f'{TICKER}_fund_flow.csv',

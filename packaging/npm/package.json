@@ -1,6 +1,6 @@
 {
   "name": "@leo-luxy/floe",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "description": "Floe — Cross-platform quantitative stock screener, trend backtester, and AI research workbench (macOS / Windows / Linux)",
   "keywords": [
     "quant",

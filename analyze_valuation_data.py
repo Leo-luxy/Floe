@@ -20,10 +20,11 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from config import DATA_DIR, AI_CONFIG
 
 def load_company_info(ticker):
-    """加载公司信息文件"""
+    """加载公司信息文件（无公司基本信息时仍尝试读取当前股价并返回空信息字典）"""
     stock_dir = os.path.join(DATA_DIR, ticker)
-    # 尝试不同的文件名格式
+    # 尝试不同的文件名格式（优先使用统一的 _company_basic.json）
     info_files = [
+        os.path.join(stock_dir, f"{ticker}_company_basic.json"),
         os.path.join(stock_dir, f"{ticker}_company_info.json"),
         os.path.join(stock_dir, "company_info.json")
     ]
@@ -34,48 +35,48 @@ def load_company_info(ticker):
             info_file = f
             break
     
-    if not info_file:
-        print(f"文件不存在: {info_files}")
-        return None
-    
-    try:
-        with open(info_file, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-        print(f"成功加载 {ticker} 的公司信息文件: {info_file}")
-        
-        # 读取当前股价
-        current_price = None
-        indicator_file = os.path.join(stock_dir, f"{ticker}_indicators.csv")
-        if os.path.exists(indicator_file):
-            try:
-                import pandas as pd
-                df = pd.read_csv(indicator_file)
-                if not df.empty:
-                    last_row = df.iloc[-1]
-                    # 尝试不同的收盘价列名
-                    for col in ['close', '收盘价', 'Close']:
-                        if col in last_row:
-                            current_price = last_row[col]
-                            break
-                    if current_price is not None:
-                        print(f"成功读取当前股价: {current_price}")
-                    else:
-                        print("未找到收盘价列")
+    data = {}
+    if info_file:
+        try:
+            with open(info_file, 'r', encoding='utf-8') as f:
+                loaded = json.load(f)
+            if isinstance(loaded, dict):
+                data = loaded
+            print(f"成功加载 {ticker} 的公司信息文件: {info_file}")
+        except Exception as e:
+            print(f"加载公司信息文件时出错: {str(e)}")
+    else:
+        print(f"公司信息文件不存在，仅加载行情与估值数据: {info_files}")
+
+    # 读取当前股价（先尝试指标文件，再回退到 qfq/valuation）
+    current_price = None
+    indicator_file = os.path.join(stock_dir, f"{ticker}_indicators.csv")
+    if os.path.exists(indicator_file):
+        try:
+            import pandas as pd
+            df = pd.read_csv(indicator_file)
+            if not df.empty:
+                last_row = df.iloc[-1]
+                for col in ['close', '收盘价', 'Close']:
+                    if col in last_row and pd.notna(last_row[col]):
+                        current_price = last_row[col]
+                        break
+                if current_price is not None:
+                    print(f"成功读取当前股价: {current_price}")
                 else:
-                    print("indicator.csv文件为空")
-            except Exception as e:
-                print(f"读取indicator.csv时出错: {str(e)}")
-        else:
-            print(f"文件不存在: {indicator_file}")
-        
-        # 添加当前股价到数据中
-        if current_price is not None:
-            data['current_price'] = current_price
-        
-        return data
-    except Exception as e:
-        print(f"加载文件时出错: {str(e)}")
-        return None
+                    print("未找到收盘价列")
+            else:
+                print("indicator.csv文件为空")
+        except Exception as e:
+            print(f"读取indicator.csv时出错: {str(e)}")
+    else:
+        print(f"文件不存在: {indicator_file}")
+
+    # 添加当前股价到数据中
+    if current_price is not None:
+        data['current_price'] = current_price
+
+    return data
 
 def load_valuation_csv(ticker):
     """从CSV文件中加载估值数据"""
@@ -344,7 +345,8 @@ def get_ai_analysis(prompt):
         temperature = AI_CONFIG['temperature']
         max_tokens = AI_CONFIG['max_tokens']
         
-        print(f"正在请求本地Ollama AI ({model})...")
+        from user_settings import describe_ai_backend
+        print(f"正在请求 {describe_ai_backend(AI_CONFIG)}...")
         # 配置Ollama客户端使用localhost
         client = ollama.Client(host=AI_CONFIG['base_url'])
         
@@ -360,10 +362,14 @@ def get_ai_analysis(prompt):
             }
         )
         
-        return response['message']['content']
+        content = (response.get('message') or {}).get('content') or ''
+        if not str(content).strip():
+            raise RuntimeError("AI 返回内容为空")
+        return content
     except Exception as e:
-        print(f"调用本地Ollama AI时出错: {str(e)}")
-        return "无法获取AI分析，请检查Ollama服务是否正常运行。"
+        from user_settings import describe_ai_backend, format_ai_error_hint
+        print(f"调用 {describe_ai_backend(AI_CONFIG)} 时出错: {str(e)}")
+        return format_ai_error_hint(AI_CONFIG, e)
 
 def save_analysis_result(ticker, analysis_content):
     """保存分析结果"""
@@ -406,7 +412,7 @@ def main():
     
     # 加载公司信息
     company_info = load_company_info(ticker)
-    if not company_info:
+    if company_info is None:
         return
     
     # 提取估值数据

@@ -170,6 +170,34 @@ def force_direct():
         pass
 
 
+def _normalize_http_proxy_url(raw_url: str) -> str:
+    """规范化 HTTP 代理地址；修正 Windows 注册表常见的本地代理被误标为 https://127.0.0.1:PORT 导致 TLS 握手失败的问题。"""
+    text = str(raw_url or '').strip()
+    if not text:
+        return ''
+    if '://' not in text:
+        text = 'http://' + text
+    parsed = urllib.parse.urlsplit(text)
+    scheme = (parsed.scheme or 'http').lower()
+    host = (parsed.hostname or '').lower()
+    if scheme not in ('http', 'https') or not host:
+        return ''
+    # 本地回环代理客户端（Clash / v2rayN / Surge 等）的 HTTP 混合端口均为明文 HTTP CONNECT 协议
+    if scheme == 'https' and host in ('127.0.0.1', 'localhost', '::1'):
+        scheme = 'http'
+    port = parsed.port or (443 if scheme == 'https' else 80)
+    auth = ''
+    if parsed.username:
+        user_q = urllib.parse.quote(urllib.parse.unquote(parsed.username), safe='')
+        if parsed.password is not None:
+            pwd_q = urllib.parse.quote(urllib.parse.unquote(parsed.password), safe='')
+            auth = f'{user_q}:{pwd_q}@'
+        else:
+            auth = f'{user_q}@'
+    host_fmt = f'[{host}]' if ':' in host and not host.startswith('[') else host
+    return f'{scheme}://{auth}{host_fmt}:{port}'
+
+
 def restore_system_proxy():
     """恢复使用操作系统配置的代理（供设置面板热切换至代理模式时调用）。"""
     if os.environ.get('no_proxy') == '*':
@@ -180,13 +208,22 @@ def restore_system_proxy():
         if val and not os.environ.get(key):
             os.environ[key] = val
     try:
-        urllib.request.getproxies = _ORIG_URLLIB_GETPROXIES
-        urllib.request.install_opener(urllib.request.build_opener())
+        raw_map = _raw_system_proxy_dict()
+        clean_map = {}
+        for k, v in (raw_map or {}).items():
+            kl = str(k).lower()
+            if kl in ('http', 'https'):
+                norm = _normalize_http_proxy_url(v)
+                if norm:
+                    clean_map[kl] = norm
+        urllib.request.getproxies = (lambda: dict(clean_map)) if clean_map else _ORIG_URLLIB_GETPROXIES
+        handlers = [urllib.request.ProxyHandler(clean_map)] if clean_map else []
+        urllib.request.install_opener(urllib.request.build_opener(*handlers))
     except Exception:
         pass
     try:
         import requests.utils as requests_utils
-        requests_utils.getproxies = _ORIG_URLLIB_GETPROXIES
+        requests_utils.getproxies = urllib.request.getproxies
     except Exception:
         pass
 
@@ -201,6 +238,19 @@ def reconfigure_network_mode(mode='direct', verbose=False):
         os.environ['GP_ANA_NET_MODE'] = 'direct'
     _STATE['checked'] = False
     return ensure_network_ready(verbose=verbose)
+
+
+def apply_collector_socket_timeout(seconds=25):
+    """为数据采集子进程设置全局 socket 超时（akshare/requests 内部多数请求未传 timeout，
+    遇到对端不响应会无限挂起，表现为分析步骤「一直卡着」直到被整步超时杀掉）。
+
+    只在采集脚本里调用；不要在 Flask 主进程里调用，以免影响长连接。
+    """
+    try:
+        if socket.getdefaulttimeout() is None:
+            socket.setdefaulttimeout(float(seconds))
+    except Exception:
+        pass
 
 
 def is_proxy_error(exc):
@@ -257,82 +307,139 @@ def ensure_network_ready(verbose=False):
 
 
 def _resolve_live_http_proxy(target_scheme='https'):
-    """查找本机系统配置中在线可连的 HTTP/HTTPS 代理，返回 (proxy_scheme, hostport, auth_header) 或 None。"""
+    """查找本机系统配置中在线可连的 HTTP/HTTPS 代理，返回规范化 proxy_url（如 'http://127.0.0.1:7897'）或 None。"""
     proxies = _raw_system_proxy_dict()
     if not proxies:
         return None
 
     t_scheme = str(target_scheme or 'https').lower()
     raw_url = (proxies.get(t_scheme) or proxies.get('https') or proxies.get('http') or proxies.get('all') or '').strip()
-    if not raw_url:
+    norm_url = _normalize_http_proxy_url(raw_url)
+    if not norm_url:
         return None
 
-    if '://' not in raw_url:
-        raw_url = 'http://' + raw_url
-    parsed = urllib.parse.urlsplit(raw_url)
-    p_scheme = (parsed.scheme or 'http').lower()
-    if p_scheme not in ('http', 'https') or not parsed.hostname:
+    parsed = urllib.parse.urlsplit(norm_url)
+    if not parsed.hostname or not parsed.port:
         return None
-
-    p_port = parsed.port or (443 if p_scheme == 'https' else 80)
-    if not _reachable(parsed.hostname, p_port, timeout=0.6):
+    if not _reachable(parsed.hostname, parsed.port, timeout=0.6):
         return None
-
-    auth_hdr = ''
-    if parsed.username and parsed.password:
-        raw_cred = f'{urllib.parse.unquote(parsed.username)}:{urllib.parse.unquote(parsed.password)}'
-        auth_hdr = 'Basic ' + base64.b64encode(raw_cred.encode('utf-8')).decode('ascii')
-
-    return p_scheme, f'{parsed.hostname}:{p_port}', auth_hdr
+    return norm_url
 
 
-def urlopen_with_optional_proxy(req, timeout=10.0):
+def urlopen_with_optional_proxy(req, timeout=10.0, prefer_proxy_for_overseas=False):
     """
     发送非国内行情类的外部管理请求（如 GitHub Release 检查更新、境外大模型 API 验证）：
-    1. 优先按当前模式发起标准 urlopen 请求；
-    2. 若默认直连下发生网络层阻断/超时，且检测到本机配置了在线可用的系统代理，
-       自动构造局部隧道请求重试一次（绝不修改全局 no_proxy，不影响任何 A 股数据源直连）。
+    1. 若当前已是 proxy-active 或 prefer_proxy_for_overseas=True 且检测到本机系统代理在线，
+       优先使用局部 ProxyHandler({'http': proxy_url, 'https': proxy_url}) 发起标准 HTTP CONNECT 隧道请求
+       （绝不修改全局 no_proxy，不影响任何 A 股国内数据源直连）；
+    2. 若默认直连下发生网络层阻断/超时，且本机存在在线系统代理，自动走局部代理隧道重试一次；
+       反之若局部代理失败，也会兜底尝试一次纯净直连。
     """
     _ensure_ssl_ready()
+
+    if isinstance(req, urllib.request.Request):
+        full_url = req.full_url
+        data = req.data
+        method = req.get_method()
+        headers = dict(req.header_items())
+    else:
+        full_url = str(req)
+        data = None
+        method = 'GET'
+        headers = {}
+
+    def _clone_request():
+        return urllib.request.Request(full_url, data=data, headers=dict(headers), method=method)
+
+    class _ExplicitProxyHandler(urllib.request.ProxyHandler):
+        """局部显式代理 Handler：保留标准 proxies 映射，且不受进程级 no_proxy=* 短路跳过。"""
+        def proxy_open(self, r_obj, proxy, p_type):
+            orig_type = r_obj.type
+            parsed = urllib.parse.urlsplit(proxy if '://' in proxy else f'http://{proxy}')
+            proxy_type = (parsed.scheme or orig_type or 'http').lower()
+            p_port = parsed.port or (443 if proxy_type == 'https' else 80)
+            hostport = f'{parsed.hostname}:{p_port}'
+            if parsed.username and parsed.password:
+                raw_cred = f'{urllib.parse.unquote(parsed.username)}:{urllib.parse.unquote(parsed.password)}'
+                auth_hdr = 'Basic ' + base64.b64encode(raw_cred.encode('utf-8')).decode('ascii')
+                r_obj.add_header('Proxy-authorization', auth_hdr)
+            r_obj.set_proxy(hostport, orig_type if orig_type == 'https' else proxy_type)
+            if orig_type == proxy_type or orig_type == 'https':
+                return None
+            return self.parent.open(r_obj, timeout=r_obj.timeout)
+
+    def _open_via_proxy(proxy_url: str, req_timeout: float):
+        proxy_map = {'http': proxy_url, 'https': proxy_url}
+        opener = urllib.request.build_opener(_ExplicitProxyHandler(proxy_map))
+        return opener.open(_clone_request(), timeout=req_timeout)
+
+    def _open_direct(req_timeout: float):
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        return opener.open(_clone_request(), timeout=req_timeout)
+
+    parsed_target = urllib.parse.urlsplit(full_url)
+    target_scheme = (parsed_target.scheme or 'https').lower()
+    target_host = parsed_target.hostname or ''
+    target_port = parsed_target.port or (443 if target_scheme == 'https' else 80)
+    live_proxy = _resolve_live_http_proxy(target_scheme)
+
+    # 若显式要求境外优先走代理隧道且检测到存活代理，直接走局部 ProxyHandler 隧道
+    if live_proxy and prefer_proxy_for_overseas:
+        try:
+            return _open_via_proxy(live_proxy, timeout)
+        except urllib.error.HTTPError:
+            raise
+        except Exception as proxy_exc:
+            try:
+                return _open_direct(min(timeout, 3.0))
+            except urllib.error.HTTPError:
+                raise
+            except Exception:
+                raise proxy_exc
+
+    # 长耗时请求（例如云端 LLM 对话 timeout>15s）严禁把直连超时截断为 3s，否则会误杀正常模型生成：
+    # 先快速探测目标直连 TCP 连通性，直连可达则给足完整 timeout，直连不可达则直接切代理给足完整 timeout。
+    if float(timeout) > 15.0 and live_proxy and _STATE.get('mode') != 'proxy-active':
+        direct_tcp_ok = bool(target_host) and _reachable(target_host, target_port, timeout=2.5)
+        if not direct_tcp_ok:
+            try:
+                return _open_via_proxy(live_proxy, timeout)
+            except urllib.error.HTTPError:
+                raise
+            except Exception as proxy_exc:
+                try:
+                    return urllib.request.urlopen(_clone_request(), timeout=timeout)
+                except urllib.error.HTTPError:
+                    raise
+                except Exception as direct_exc:
+                    raise RuntimeError(f'{direct_exc}；局部代理回退亦失败: {proxy_exc}') from proxy_exc
+
+    # 默认先走当前全局 opener（direct 模式下为直连，proxy-active 模式下已挂载规范化系统代理）
+    # 仅对 <=15s 的轻量探测在代理存活时使用 3s 快速直连探测，避免卡住桌面端无代理回退
+    first_timeout = min(timeout, 3.0) if (live_proxy and float(timeout) <= 15.0) else timeout
     try:
-        return urllib.request.urlopen(req, timeout=timeout)
+        return urllib.request.urlopen(_clone_request(), timeout=first_timeout)
     except urllib.error.HTTPError:
         raise
     except Exception as first_exc:
-        if _STATE.get('mode') == 'proxy-active':
-            raise
         if 'CERTIFICATE_VERIFY_FAILED' in str(first_exc):
             raise
-
-        if isinstance(req, urllib.request.Request):
-            full_url = req.full_url
-            data = req.data
-            method = req.get_method()
-            headers = dict(req.header_items())
-        else:
-            full_url = str(req)
-            data = None
-            method = 'GET'
-            headers = {}
-
-        target_scheme = urllib.parse.urlsplit(full_url).scheme or 'https'
-        live_proxy = _resolve_live_http_proxy(target_scheme)
+        if _STATE.get('mode') == 'proxy-active':
+            # 代理模式下若代理节点异常，兜底尝试一次局部直连
+            try:
+                return _open_direct(min(timeout, 15.0))
+            except urllib.error.HTTPError:
+                raise
+            except Exception as direct_exc:
+                raise RuntimeError(f'{first_exc}；直连回退亦失败: {direct_exc}') from first_exc
         if not live_proxy:
             raise
-
-        p_scheme, hostport, auth_hdr = live_proxy
-        cloned = urllib.request.Request(full_url, data=data, headers=headers, method=method)
-        _ = (cloned.type, cloned.host)
-        if auth_hdr:
-            cloned.add_header('Proxy-authorization', auth_hdr)
-        cloned.set_proxy(hostport, p_scheme)
-        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
         try:
-            return opener.open(cloned, timeout=timeout)
+            return _open_via_proxy(live_proxy, timeout)
         except urllib.error.HTTPError:
             raise
-        except Exception:
-            raise first_exc
+        except Exception as proxy_exc:
+            raise RuntimeError(f'{first_exc}；局部代理回退亦失败: {proxy_exc}') from first_exc
 
 
 def _announce(verbose):

@@ -33,7 +33,7 @@ for py_file in glob.glob(os.path.join(PROJECT_ROOT, '*.py')):
     if bname not in EXCLUDED_ROOT_PY:
         datas.append((py_file, '.'))
 
-for subdir in ('api', 'Process', 'daily', 'weekly', 'shenwan_config'):
+for subdir in ('api', 'Process', 'daily', 'weekly', 'shenwan_config', 'data_hub', os.path.join('data_hub', 'providers')):
     src_dir = os.path.join(PROJECT_ROOT, subdir)
     if os.path.isdir(src_dir):
         for py_file in glob.glob(os.path.join(src_dir, '*.py')):
@@ -88,6 +88,10 @@ hiddenimports = [
 
 try:
     hiddenimports += collect_submodules('webview')
+except Exception:
+    pass
+try:
+    hiddenimports += collect_submodules('data_hub')
 except Exception:
     pass
 

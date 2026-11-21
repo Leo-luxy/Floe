@@ -266,21 +266,28 @@ def _set_step_progress(task_id, value, label):
 def run_command_with_output(task_id, cmd, cwd, description):
     messages = selection_tasks[task_id]['messages']
     messages.append(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {description}")
-    selection_tasks[task_id]['messages'] = messages.copy()
     
     try:
-        env = os.environ.copy()
+        env = _ap.subprocess_env() if _ap is not None else os.environ.copy()
+        env['FLOE_SUBPROCESS'] = '1'
         env['PYTHONUNBUFFERED'] = '1'
         
+        popen_extra = {}
+        if os.name == 'nt':
+            popen_extra['creationflags'] = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+
         process = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
+            encoding='utf-8',
+            errors='replace',
             cwd=cwd,
             bufsize=1,
             universal_newlines=True,
-            env=env
+            env=env,
+            **popen_extra,
         )
         
         while True:
@@ -288,8 +295,9 @@ def run_command_with_output(task_id, cmd, cwd, description):
             if line == '' and process.poll() is not None:
                 break
             if line:
-                messages.append(line.strip())
-                selection_tasks[task_id]['messages'] = messages.copy()
+                clean_line = line.strip()
+                if clean_line:
+                    messages.append(clean_line)
                 _update_step_progress(task_id, line)
         
         return_code = process.wait()
@@ -298,20 +306,32 @@ def run_command_with_output(task_id, cmd, cwd, description):
         else:
             messages.append(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {description} 失败，返回码: {return_code}")
         
-        selection_tasks[task_id]['messages'] = messages.copy()
         return return_code
     except Exception as e:
         messages.append(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {description} 异常: {str(e)}")
-        selection_tasks[task_id]['messages'] = messages.copy()
         return -1
 
 def _fail_selection(task_id, messages, reason):
-    """取数失败时中止任务：绝不让旧数据被当成今天的结果展示"""
-    messages.append(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 任务中止：{reason}")
-    messages.append("本轮结果无效，已禁止展示旧持仓或不完整名单。")
+    """取数失败时中止任务：保留完整子进程输出并同步失败状态，绝不让旧数据被当成今天的结果展示"""
+    msg_list = selection_tasks[task_id].setdefault('messages', messages)
+    msg_list.append(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 任务中止：{reason}")
+    msg_list.append("本轮结果无效，已禁止展示旧持仓或不完整名单。")
+    try:
+        atomic_status(
+            os.path.join(SELECTION_DIR, "final_holdings_status.json"),
+            {
+                "void": True,
+                "valid": False,
+                "completed": False,
+                "void_reason": reason,
+                "state": "failed",
+                "run_id": uuid.uuid4().hex,
+            },
+        )
+    except Exception:
+        pass
     selection_results.pop(task_id, None)
     selection_tasks[task_id]['status'] = 'failed'
-    selection_tasks[task_id]['messages'] = messages.copy()
     return False
 
 
@@ -329,7 +349,6 @@ def run_selection(task_id, preliminary, detailed):
         invalidate_holdings('新选股任务运行中，旧结果已作废')
         
         messages.append(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] ========== 开始市场选股任务 ==========")
-        selection_tasks[task_id]['messages'] = messages.copy()
         
         # 进度区间：初筛占 0-40%，最终持仓占其余部分；批筛内部按 [i/N] 行细化。
         if preliminary:
@@ -433,7 +452,6 @@ def run_selection(task_id, preliminary, detailed):
                 if result.get('degraded'):
                     selection_tasks[task_id].update(status='degraded', progress=100)
                     messages.append(result['message'])
-                    selection_tasks[task_id]['messages'] = messages.copy()
                     return
                 return _fail_selection(task_id, messages, result['message'])
             selection_results[task_id] = result['data']
@@ -455,17 +473,13 @@ def run_selection(task_id, preliminary, detailed):
         if detailed and selection_tasks[task_id].get('degraded'):
             messages.append('注意：本轮有股票未处理成功，名单为部分结果，页面以黄色降级提示展示')
             selection_tasks[task_id]['status'] = 'degraded'
-            selection_tasks[task_id]['progress'] = 100
         else:
             selection_tasks[task_id]['status'] = 'completed'
         selection_tasks[task_id]['progress'] = 100
-        selection_tasks[task_id]['progress'] = 100
-        selection_tasks[task_id]['messages'] = messages.copy()
         
     except Exception as e:
         messages.append(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 任务执行异常: {str(e)}")
         selection_tasks[task_id]['status'] = 'failed'
-        selection_tasks[task_id]['messages'] = messages.copy()
 
 @stock_selection_bp.route('/stock_selection/run', methods=['POST'])
 def run_stock_selection():

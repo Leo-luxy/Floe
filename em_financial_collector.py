@@ -50,35 +50,26 @@ class EastmoneyFinancialCollector:
         }
 
     def _make_request(self, url: str, params: Dict[str, Any], max_retries: int = 3) -> list:
-        """发送HTTP请求，带重试机制"""
-        for attempt in range(max_retries):
-            try:
-                response = requests.get(url, params=params, headers=self.headers, timeout=10)
-                response.raise_for_status()
-                data = response.json()
-
-                if data is None:
-                    print("警告：返回的JSON为null")
-                    return []
-
-                if "result" in data and "data" in data["result"]:
-                    return data["result"]["data"]
-                elif "data" in data:
-                    return data["data"]
-                else:
-                    print(f"警告：返回的JSON结构不包含预期字段")
-                    return []
-                    
-            except requests.exceptions.RequestException as e:
-                print(f"请求出错 (尝试 {attempt + 1}/{max_retries}): {e}")
-                if attempt < max_retries - 1:
-                    time.sleep(2 ** attempt)
-                else:
-                    print(f"请求失败，已达到最大重试次数")
-                    return []
-            except Exception as e:
-                print(f"处理响应时出错: {e}")
+        """发送HTTP请求（统一委托 data_hub UnifiedTransport 控制超时、重试与代理协同）。"""
+        import data_hub
+        tx = data_hub.get_transport()
+        try:
+            data = tx.request_json(
+                url,
+                params=params,
+                headers=self.headers,
+                retries=max(0, int(max_retries) - 1),
+            )
+            if data is None:
                 return []
+            if "result" in data and isinstance(data["result"], dict) and "data" in data["result"]:
+                return data["result"]["data"] or []
+            if "data" in data:
+                return data["data"] or []
+            return []
+        except Exception as e:
+            print(f"请求失败: {e}")
+            return []
         
         return []
 
@@ -182,22 +173,8 @@ class EastmoneyFinancialCollector:
             ps = 200
             print("  本地数据文件不存在，设置 ps=200")
         
-        url = f"{self.base_url}/get"
-        params = {
-            "type": "RPT_F10_FINANCE_DUPONT",
-            "sty": "APP_F10_FINANCE_DUPONT",
-            "quoteColumns": "",
-            "filter": f'(SECUCODE="{self.ticker}")',
-            "p": 1,
-            "ps": ps,
-            "sr": -1,
-            "st": "REPORT_DATE",
-            "source": "HSF10",
-            "client": "PC",
-            "v": str(int(time.time() * 1000))
-        }
-        
-        records = self._make_request(url, params)
+        import data_hub
+        records = data_hub.fetch("stock_em_financial", ticker=self.ticker, kind="dupont").to_dict(orient="records")
         
         if not records:
             print("  未获取到杜邦分析数据")
@@ -245,22 +222,8 @@ class EastmoneyFinancialCollector:
             pageSize = 200
             print("  本地数据文件不存在，设置 pageSize=200")
         
-        url = f"{self.base_url}/v1/get"
-        params = {
-            "reportName": "RPT_F10_FINANCE_GRATIO",
-            "columns": "ALL",
-            "quoteColumns": "",
-            "filter": f'(SECUCODE="{self.ticker}")',
-            "sortTypes": "-1,1",
-            "sortColumns": "REPORT_DATE,INTERFACE_TYPE",
-            "pageNumber": 1,
-            "pageSize": pageSize,
-            "source": "HSF10",
-            "client": "PC",
-            "v": str(int(time.time() * 1000))
-        }
-        
-        records = self._make_request(url, params)
+        import data_hub
+        records = data_hub.fetch("stock_em_financial", ticker=self.ticker, kind="growth").to_dict(orient="records")
         
         if not records:
             print("  未获取到增长率数据")
@@ -308,22 +271,8 @@ class EastmoneyFinancialCollector:
             ps = 200
             print("  本地数据文件不存在，设置 ps=200")
         
-        url = f"{self.base_url}/get"
-        params = {
-            "type": "RPT_F10_FINANCE_MAINFINADATA",
-            "sty": "APP_F10_MAINFINADATA",
-            "quoteColumns": "",
-            "filter": f'(SECUCODE="{self.ticker}")',
-            "p": 1,
-            "ps": ps,
-            "sr": -1,
-            "st": "REPORT_DATE",
-            "source": "HSF10",
-            "client": "PC",
-            "v": str(int(time.time() * 1000))
-        }
-        
-        records = self._make_request(url, params)
+        import data_hub
+        records = data_hub.fetch("stock_em_financial", ticker=self.ticker, kind="main").to_dict(orient="records")
         
         if not records:
             print("  未获取到主要财务指标数据")
@@ -357,7 +306,6 @@ class EastmoneyFinancialCollector:
         # 1. 抓取杜邦分析数据
         try:
             results['dupont'] = self.fetch_dupont_data()
-            time.sleep(1)
         except Exception as e:
             print(f"抓取杜邦分析数据时出错: {e}")
             results['dupont'] = None
@@ -365,7 +313,6 @@ class EastmoneyFinancialCollector:
         # 2. 抓取增长率数据
         try:
             results['growth_ratio'] = self.fetch_growth_ratio_data()
-            time.sleep(1)
         except Exception as e:
             print(f"抓取增长率数据时出错: {e}")
             results['growth_ratio'] = None
@@ -373,7 +320,6 @@ class EastmoneyFinancialCollector:
         # 3. 抓取主要财务指标数据
         try:
             results['main_financial'] = self.fetch_main_financial_data()
-            time.sleep(1)
         except Exception as e:
             print(f"抓取主要财务指标数据时出错: {e}")
             results['main_financial'] = None

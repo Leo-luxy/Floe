@@ -134,6 +134,15 @@ def _run_command_stream(command, cwd, messages, prefix='', max_line_len=150, on_
     非 0 一律按失败处理，不能降级成「警告」。
     """
     try:
+        try:
+            import app_paths as _ap
+            env = _ap.subprocess_env()
+            run_cwd = _ap.get_user_data_dir() if _ap.is_packaged_mode() else cwd
+        except Exception:
+            env = os.environ.copy()
+            env['FLOE_SUBPROCESS'] = '1'
+            run_cwd = cwd
+        env['PYTHONUNBUFFERED'] = '1'
         data_failures = []
         process = subprocess.Popen(
             command,
@@ -143,7 +152,8 @@ def _run_command_stream(command, cwd, messages, prefix='', max_line_len=150, on_
             text=True,
             encoding='utf-8',
             errors='replace',
-            cwd=cwd,
+            cwd=run_cwd,
+            env=env,
             bufsize=1
         )
         for line in iter(process.stdout.readline, ''):
@@ -194,6 +204,10 @@ def run_backtest_task(task_id, skip_data_update=False, use_simplified=False):
         # 获取股票列表 - 优先从关注列表读取
         ticker_list = []
         try:
+            import importlib
+            wl_mod = sys.modules.get('watchlist')
+            if wl_mod is not None and getattr(wl_mod, '__file__', None):
+                importlib.reload(wl_mod)
             from watchlist import WATCHLIST
             ticker_list = [item[0] for item in WATCHLIST]
             messages.append(f'从关注列表读取到 {len(ticker_list)} 只股票')

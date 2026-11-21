@@ -1,208 +1,125 @@
+# -*- coding: utf-8 -*-
+"""
+补充重要缺失数据采集器（分红送转 + 机构盈利预测）
+统一经由 data_hub 调度：全市场慢表自动复用 6 小时本地共享缓存，避免逐只重复下载。
+"""
 
-# important_missing_data_collector.py
-# 功能：抓取个股的重要缺失数据，包括除权除息数据、龙虎榜数据、高管持股和增减持数据、业绩预告和快报数据
-# 实现原理：
-# 1. 从config.py中获取股票列表
-# 2. 对每只股票，使用akshare获取各种重要缺失数据
-# 3. 进行错误处理，防止某个数据返回为空
-# 4. 将获取的信息保存到该股票文件夹下的对应文件中
-
-import akshare as ak
-import pandas as pd
-import json
+import argparse
 import os
-import time
-import random
 import sys
-from datetime import date, datetime, timedelta
+import traceback
 
-# 添加项目根目录到Python路径
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+import pandas as pd
 
-from config import DATA_DIR, STOCK_TICKERS
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+try:
+    from net_guard import apply_collector_socket_timeout, ensure_network_ready
 
-class DateEncoder(json.JSONEncoder):
-    """自定义JSON编码器，处理日期对象"""
-    def default(self, obj):
-        if isinstance(obj, (date, datetime)):
-            try:
-                return obj.strftime('%Y-%m-%d')
-            except:
-                return None
-        elif isinstance(obj, pd.Timestamp):
-            try:
-                if pd.isna(obj):
-                    return None
-                return obj.strftime('%Y-%m-%d')
-            except:
-                return None
-        return super().default(obj)
+    ensure_network_ready()
+except Exception:
+    apply_collector_socket_timeout = None
+
+try:
+    from config import DATA_DIR, STOCK_TICKERS
+except ImportError:
+    DATA_DIR = "./data"
+    STOCK_TICKERS = []
+
+import data_hub
+
 
 def get_stock_ex_dividend_data(ticker):
-    """获取股票的除权除息数据"""
-    print(f"获取 {ticker} 的除权除息数据...")
-    
-    # 解析股票代码
-    code = ticker.split('.')[0]
-    market = 'sh' if ticker.endswith('.SH') else 'sz'
-    
-    # 构建股票文件夹路径
+    """获取历史分红除权信息，保存到 {ticker}_ex_dividend.csv。"""
+    print(f"正在获取 {ticker} 历史分红数据...")
     stock_dir = os.path.join(DATA_DIR, ticker)
     os.makedirs(stock_dir, exist_ok=True)
-    
+    output_file = os.path.join(stock_dir, f"{ticker}_ex_dividend.csv")
     try:
-        time.sleep(random.uniform(2, 4))  # 随机间隔2-4秒
-        # 获取所有股票的历史分红数据
-        ex_dividend_df = ak.stock_history_dividend()
-        if not ex_dividend_df.empty:
-            # 筛选出指定股票的数据
-            # 注意：这里需要根据实际的列名进行筛选
-            # 假设列名为 '股票代码' 或 'code'
-            if '代码' in ex_dividend_df.columns:
-                # 注意：数据中的代码可能是不带市场后缀的
-                stock_dividend_df = ex_dividend_df[ex_dividend_df['代码'] == code]
-            elif '股票代码' in ex_dividend_df.columns:
-                stock_dividend_df = ex_dividend_df[ex_dividend_df['股票代码'] == code]
-            elif 'code' in ex_dividend_df.columns:
-                stock_dividend_df = ex_dividend_df[ex_dividend_df['code'] == code]
-            else:
-                # 尝试其他可能的列名
-                print(f"除权除息数据列名: {ex_dividend_df.columns.tolist()}")
-                stock_dividend_df = pd.DataFrame()
-            
-            if not stock_dividend_df.empty:
-                # 保存到CSV文件
-                output_file = os.path.join(stock_dir, f"{ticker}_ex_dividend.csv")
-                stock_dividend_df.to_csv(output_file, index=False, encoding='utf-8-sig')
-                print(f"除权除息数据已保存到: {output_file}")
-                return stock_dividend_df
-            else:
-                print(f"未找到 {ticker} 的除权除息数据")
-                return None
-        else:
-            print("除权除息数据为空")
-            return None
-    except Exception as e:
-        print(f"获取除权除息数据时出错: {str(e)}")
+        df = data_hub.fetch("stock_ex_dividend", ticker=ticker)
+        if df is not None and not df.empty:
+            df.to_csv(output_file, index=False, encoding="utf-8-sig")
+            print(f"分红数据已保存到: {output_file} ({len(df)} 条)")
+            return df
+        print(f"未找到 {ticker} 的分红数据")
+        return None
+    except Exception as exc:
+        print(f"获取 {ticker} 分红数据失败: {exc}")
+        traceback.print_exc()
         return None
 
+
 def get_stock_b龙虎榜_data(ticker):
-    """获取股票的龙虎榜数据"""
-    print(f"获取 {ticker} 的龙虎榜数据...")
-    
-    # 注意：akshare 1.18.46 版本没有直接获取龙虎榜数据的函数
-    # 这里我们可以尝试从其他数据源获取，或者暂时跳过
-    print("龙虎榜数据暂不支持获取")
+    """获取龙虎榜数据（保留接口兼容）。"""
+    print(f"跳过 {ticker} 龙虎榜独立抓取（如需扩展请在 data_hub 注册能力）")
     return None
+
 
 def get_stock_insider_trading_data(ticker):
-    """获取股票的高管持股和增减持数据"""
-    print(f"获取 {ticker} 的高管持股和增减持数据...")
-    
-    # 注意：akshare 1.18.46 版本没有直接获取高管持股和增减持数据的函数
-    # 这里我们可以尝试从其他数据源获取，或者暂时跳过
-    print("高管持股和增减持数据暂不支持获取")
+    """获取高管增减持数据（保留接口兼容）。"""
+    print(f"跳过 {ticker} 高管增减持独立抓取（如需扩展请在 data_hub 注册能力）")
     return None
 
+
 def get_stock_业绩预告_data(ticker):
-    """获取股票的业绩预告和快报数据"""
-    print(f"获取 {ticker} 的业绩预告和快报数据...")
-    
-    # 解析股票代码
-    code = ticker.split('.')[0]
-    market = 'sh' if ticker.endswith('.SH') else 'sz'
-    
-    # 构建股票文件夹路径
+    """获取机构盈利预测（东方财富全市场共享缓存 + 同花顺单股接口）。"""
+    print(f"正在获取 {ticker} 盈利预测数据...")
     stock_dir = os.path.join(DATA_DIR, ticker)
     os.makedirs(stock_dir, exist_ok=True)
-    
+    result_df = None
+
     try:
-        # 获取东方财富的业绩预告数据
-        time.sleep(random.uniform(2, 4))  # 随机间隔2-4秒
-        performance_forecast_df = ak.stock_profit_forecast_em(symbol="")
-        if not performance_forecast_df.empty:
-            # 筛选出指定股票的数据
-            if '代码' in performance_forecast_df.columns:
-                stock_forecast_df = performance_forecast_df[performance_forecast_df['代码'] == code]
-            elif '股票代码' in performance_forecast_df.columns:
-                stock_forecast_df = performance_forecast_df[performance_forecast_df['股票代码'] == code]
-            elif 'code' in performance_forecast_df.columns:
-                stock_forecast_df = performance_forecast_df[performance_forecast_df['code'] == code]
-            else:
-                print(f"业绩预告数据列名: {performance_forecast_df.columns.tolist()}")
-                stock_forecast_df = pd.DataFrame()
-            
-            if not stock_forecast_df.empty:
-                output_file = os.path.join(stock_dir, f"{ticker}_performance_forecast.csv")
-                stock_forecast_df.to_csv(output_file, index=False, encoding='utf-8-sig')
-                print(f"东方财富业绩预告数据已保存到: {output_file}")
-            else:
-                print(f"未找到 {ticker} 的东方财富业绩预告数据")
-        else:
-            print("东方财富业绩预告数据为空")
-        
-        # 获取同花顺的财报预测数据
-        time.sleep(random.uniform(2, 4))  # 随机间隔2-4秒
-        try:
-            ths_forecast_df = ak.stock_profit_forecast_ths(symbol=code)
-            if not ths_forecast_df.empty:
-                output_file = os.path.join(stock_dir, f"{ticker}_performance_forecast_ths.csv")
-                ths_forecast_df.to_csv(output_file, index=False, encoding='utf-8-sig')
-                print(f"同花顺财报预测数据已保存到: {output_file}")
-            else:
-                print(f"未找到 {ticker} 的同花顺财报预测数据")
-        except Exception as e:
-            print(f"获取同花顺财报预测数据时出错: {str(e)}")
-        
-        # 注意：akshare 1.18.46 版本没有直接获取业绩快报的函数
-        print("业绩快报数据暂不支持获取")
-        
-        return True
-    except Exception as e:
-        print(f"获取业绩预告数据时出错: {str(e)}")
-        return False
+        em_df = data_hub.fetch("stock_profit_forecast_em", ticker=ticker)
+        if em_df is not None and not em_df.empty:
+            out_em = os.path.join(stock_dir, f"{ticker}_performance_forecast.csv")
+            em_df.to_csv(out_em, index=False, encoding="utf-8-sig")
+            print(f"东财盈利预测已保存到: {out_em} ({len(em_df)} 条)")
+            result_df = em_df
+    except Exception as exc:
+        print(f"获取 {ticker} 东财盈利预测失败: {exc}")
+
+    try:
+        ths_df = data_hub.fetch("stock_profit_forecast_ths", ticker=ticker)
+        if ths_df is not None and not ths_df.empty:
+            out_ths = os.path.join(stock_dir, f"{ticker}_performance_forecast_ths.csv")
+            ths_df.to_csv(out_ths, index=False, encoding="utf-8-sig")
+            print(f"同花顺盈利预测已保存到: {out_ths} ({len(ths_df)} 条)")
+            if result_df is None:
+                result_df = ths_df
+    except Exception as exc:
+        print(f"获取 {ticker} 同花顺盈利预测失败: {exc}")
+
+    return result_df
+
 
 def get_stock_important_missing_data(ticker):
-    """获取单个股票的重要缺失数据"""
-    print(f"\n开始获取 {ticker} 的重要缺失数据...")
-    
-    # 获取除权除息数据
-    get_stock_ex_dividend_data(ticker)
-    
-    # 获取龙虎榜数据
-    get_stock_b龙虎榜_data(ticker)
-    
-    # 获取高管持股和增减持数据
-    get_stock_insider_trading_data(ticker)
-    
-    # 获取业绩预告和快报数据
-    get_stock_业绩预告_data(ticker)
-    
-    print(f"{ticker} 的重要缺失数据获取完成！")
+    """获取指定股票的全部补充缺失数据。"""
+    print(f"\n===== 开始采集 {ticker} 补充基础数据 =====")
+    return {
+        "ex_dividend": get_stock_ex_dividend_data(ticker),
+        "profit_forecast": get_stock_业绩预告_data(ticker),
+    }
+
 
 def main():
-    """主函数"""
-    import argparse
-    
-    # 解析命令行参数
-    parser = argparse.ArgumentParser(description="收集股票的重要缺失数据")
-    parser.add_argument('--ticker', type=str, help='指定股票代码，例如：300433.SZ')
+    if apply_collector_socket_timeout is not None:
+        apply_collector_socket_timeout(25)
+    parser = argparse.ArgumentParser(description="采集分红与盈利预测等补充基础数据")
+    parser.add_argument("--ticker", type=str, help="指定股票代码，例如：300433.SZ")
     args = parser.parse_args()
-    
-    print("开始收集重要缺失数据...")
-    
-    # 确定股票列表
-    if args.ticker:
-        # 使用指定的股票
-        print(f"处理指定股票: {args.ticker}")
-        get_stock_important_missing_data(args.ticker)
-    else:
-        # 使用配置文件中的股票列表
-        print("处理配置文件中的股票列表")
-        for name, ticker in STOCK_TICKERS.items():
-            get_stock_important_missing_data(ticker)
-    
-    print("\n重要缺失数据收集完成！")
+
+    tickers = [args.ticker] if args.ticker else [
+        (t[0] if isinstance(t, (list, tuple)) else t) for t in STOCK_TICKERS
+    ]
+    if not tickers and os.path.isdir(DATA_DIR):
+        tickers = sorted(
+            d for d in os.listdir(DATA_DIR)
+            if os.path.isdir(os.path.join(DATA_DIR, d)) and "." in d
+        )
+
+    for t in tickers:
+        get_stock_important_missing_data(t)
+    print("\n补充数据采集完成！")
+
 
 if __name__ == "__main__":
     main()

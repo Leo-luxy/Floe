@@ -1,22 +1,33 @@
 #!/usr/bin/env python3
 # 程序：使用akshare获取申万三级行业信息
 
-import akshare as ak
-import pandas as pd
 import json
 import os
+import sys
 from datetime import datetime, timedelta
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from net_guard import ensure_network_ready
+ensure_network_ready()
+
+import akshare as ak
+import pandas as pd
+
+try:
+    from config import DATA_DIR as _BASE_DATA_DIR
+except Exception:
+    _BASE_DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
+
 # 创建数据存储目录
-data_dir = os.path.join(os.path.dirname(__file__), 'data', 'shenwan_industry')
+data_dir = os.path.join(_BASE_DATA_DIR, 'shenwan_industry')
 os.makedirs(data_dir, exist_ok=True)
 
 def get_shenwan_industry_level1():
     """获取申万一级行业信息"""
     try:
+        import data_hub
         print("开始获取申万一级行业信息...")
-        # 使用akshare获取申万行业分类
-        industry_df = ak.sw_index_first_info()
+        industry_df = data_hub.fetch("shenwan_levels")["l1"]
         
         print("获取到的申万一级行业信息：")
         print(industry_df)
@@ -34,9 +45,9 @@ def get_shenwan_industry_level1():
 def get_shenwan_industry_level2():
     """获取申万二级行业信息"""
     try:
+        import data_hub
         print("开始获取申万二级行业信息...")
-        # 使用akshare获取申万二级行业分类
-        industry_df = ak.sw_index_second_info()
+        industry_df = data_hub.fetch("shenwan_levels")["l2"]
         
         print("获取到的申万二级行业信息：")
         print(industry_df)
@@ -96,9 +107,9 @@ def get_shenwan_industry_full_info():
 def get_shenwan_industry_level3():
     """获取申万三级行业信息"""
     try:
+        import data_hub
         print("开始获取申万三级行业信息...")
-        # 使用akshare获取申万三级行业信息
-        industry_df = ak.sw_index_third_info()
+        industry_df = data_hub.fetch("shenwan_levels")["l3"]
         
         print("获取到的申万三级行业信息：")
         print(industry_df)
@@ -116,9 +127,9 @@ def get_shenwan_industry_level3():
 def get_shenwan_industry_level3_stocks(industry_code):
     """获取指定申万三级行业的股票列表"""
     try:
+        import data_hub
         print(f"开始获取申万三级行业代码 {industry_code} 的股票列表...")
-        # 使用akshare获取申万三级行业成分股
-        stocks_df = ak.sw_index_third_cons(symbol=industry_code)
+        stocks_df = data_hub.fetch("shenwan_cons", index_code=industry_code)
         
         print(f"获取到的股票列表：")
         print(stocks_df)
@@ -139,7 +150,7 @@ def get_industry_for_stock(stock_code):
         print(f"开始获取股票 {stock_code} 的所属行业...")
         
         # 读取company_basic.json文件
-        company_basic_file = os.path.join(os.path.dirname(__file__), 'data', stock_code, f'{stock_code}_company_basic.json')
+        company_basic_file = os.path.join(_BASE_DATA_DIR, stock_code, f'{stock_code}_company_basic.json')
         if os.path.exists(company_basic_file):
             with open(company_basic_file, 'r', encoding='utf-8') as f:
                 company_basic = json.load(f)
@@ -156,7 +167,13 @@ def get_industry_for_stock(stock_code):
                 print("未找到板块名称层级字段")
                 return None
         else:
-            print(f"公司基本信息文件不存在: {company_basic_file}")
+            import data_hub
+            print(f"公司基本信息文件不存在，尝试经由 data_hub 实时补齐: {stock_code}")
+            info = data_hub.fetch("stock_company_basic", ticker=stock_code) or {}
+            industry_level = info.get("EM2016") or info.get("INDUSTRY") or info.get("BOARD_NAME")
+            if industry_level:
+                print(f"已从 data_hub 获取板块行业信息: {industry_level}")
+                return industry_level
             return None
     except Exception as e:
         print(f"获取股票行业信息时出错: {str(e)}")
@@ -264,7 +281,7 @@ if __name__ == "__main__":
                             }
                             
                             # 保存到data/{ticker}文件夹中
-                            ticker_data_dir = os.path.join(os.path.dirname(__file__), 'data', args.ticker)
+                            ticker_data_dir = os.path.join(_BASE_DATA_DIR, args.ticker)
                             os.makedirs(ticker_data_dir, exist_ok=True)
                             output_file = os.path.join(ticker_data_dir, f'{args.ticker}_industry_info.json')
                             with open(output_file, 'w', encoding='utf-8') as f:

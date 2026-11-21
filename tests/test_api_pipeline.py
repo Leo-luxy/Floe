@@ -265,20 +265,21 @@ class CheckDataUpdatesTest(unittest.TestCase):
 
     def test_run_command_checks_returncode(self):
         failed = subprocess.CompletedProcess(args='x', returncode=2, stdout='', stderr='取不到行情数据')
-        with mock.patch.object(cdu.subprocess, 'run', return_value=failed):
+        with mock.patch.object(cdu, '_execute_streaming', return_value=failed):
             ok, detail = cdu.run_command('python data_collector.py --ticker 000001.SZ')
         self.assertFalse(ok)
         self.assertIn('returncode=2', detail)
         self.assertIn('取不到行情数据', detail)
 
         succeeded = subprocess.CompletedProcess(args='x', returncode=0, stdout='ok', stderr='')
-        with mock.patch.object(cdu.subprocess, 'run', return_value=succeeded):
+        with mock.patch.object(cdu, '_execute_streaming', return_value=succeeded):
             ok, detail = cdu.run_command('python data_collector.py --ticker 000001.SZ')
         self.assertTrue(ok)
         self.assertEqual(detail, '')
 
     def test_daily_check_collects_update_failures(self):
-        with mock.patch.object(cdu, 'check_file_up_to_date', return_value=False), \
+        with mock.patch.object(cdu, 'DATA_DIR', self.tmpdir), \
+             mock.patch.object(cdu, 'check_file_up_to_date', return_value=False), \
              mock.patch.object(cdu, 'run_command', return_value=(False, 'returncode=2；输出末尾: 取数失败')):
             failures = cdu.check_daily_data('000001.SZ', expected_date=date(2026, 11, 12))
         self.assertEqual(len(failures), len(cdu.DAILY_DATA_FILES))
@@ -339,7 +340,8 @@ class ReportPathSecurityTest(unittest.TestCase):
 
     def test_valid_report_can_be_read(self):
         sample = self._find_data_file(('.md',))
-        self.assertIsNotNone(sample, 'data/ 下没有可用于测试的报告文件')
+        if sample is None:
+            raise unittest.SkipTest('data/ 下没有可用于测试的报告文件')
         data = self._call(sample)
         self.assertTrue(data['success'], data.get('message'))
         self.assertTrue(data['content'])

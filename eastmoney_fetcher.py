@@ -6,6 +6,9 @@ import requests
 import json
 import os
 import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import data_hub
 from datetime import datetime
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -57,7 +60,7 @@ def _do_request(params, headers_extra=None):
     if headers_extra:
         headers.update(headers_extra)
     try:
-        resp = requests.get(BASE_URL, params=params, headers=headers)
+        resp = data_hub.get_transport().request_raw(BASE_URL, params=params, headers=headers)
         resp.raise_for_status()
         data = resp.json()
         if data.get('success') and data.get('result') and data['result'].get('data'):
@@ -121,17 +124,7 @@ def run_market_performance(ticker):
 # ============================================================
 def run_industry_valuation(ticker):
     print(f"\n=== 行业估值排名: {ticker} ===")
-    params = {
-        "reportName": "RPT_PCF10_INDUSTRY_CVALUE",
-        "columns": "ALL",
-        "filter": f'(SECUCODE="{ticker}")',
-        "sortTypes": 1,
-        "sortColumns": "PAIMING",
-        "source": "HSF10",
-        "client": "PC",
-        "v": str(int(datetime.now().timestamp() * 1000)),
-    }
-    raw = _do_request(params)
+    raw = data_hub.fetch("stock_f10_report", ticker=ticker, report_type="industry_valuation")
     if not raw:
         print("  未获取到数据")
         return False
@@ -176,21 +169,7 @@ def run_industry_valuation(ticker):
 # ============================================================
 def run_industry_peers(ticker):
     print(f"\n=== 同行业公司对比: {ticker} ===")
-    params = {
-        "reportName": "RPT_PCF10_INDUSTRY_MARKET",
-        "columns": "SECUCODE,SECURITY_CODE,SECURITY_NAME_ABBR,ORG_CODE,CORRE_SECUCODE,CORRE_SECURITY_CODE,CORRE_SECURITY_NAME,CORRE_ORG_CODE,TOTAL_CAP,FREECAP,TOTAL_OPERATEINCOME,NETPROFIT,REPORT_TYPE,TOTAL_CAP_RANK,FREECAP_RANK,TOTAL_OPERATEINCOME_RANK,NETPROFIT_RANK",
-        "filter": f'(SECUCODE="{ticker}")(CORRE_SECUCODE<>"{ticker}")(CORRE_SECUCODE<>"行业平均")(CORRE_SECUCODE<>"行业中值")',
-        "pageNumber": 1,
-        "pageSize": 5,
-        "sortTypes": -1,
-        "sortColumns": "NETPROFIT",
-        "source": "HSF10",
-        "client": "PC",
-        "v": str(int(datetime.now().timestamp() * 1000)),
-    }
-    # 与 V3 完全一致的请求头
-    headers_extra = {"Priority": "u=3, I"}  # 注意大写 I
-    raw = _do_request(params, headers_extra)
+    raw = data_hub.fetch("stock_f10_report", ticker=ticker, report_type="industry_peers")
     if not raw:
         print("  未获取到数据")
         return False
@@ -227,18 +206,7 @@ def run_industry_peers(ticker):
 # ============================================================
 def run_industry_growth(ticker):
     print(f"\n=== 行业成长能力排名: {ticker} ===")
-    params = {
-        "reportName": "RPT_PCF10_INDUSTRY_GROWTH",
-        "columns": "ALL",
-        "filter": f'(SECUCODE="{ticker}")',
-        "sortTypes": 1,
-        "sortColumns": "PAIMING",
-        "source": "HSF10",
-        "client": "PC",
-        "v": str(int(datetime.now().timestamp() * 1000)),
-    }
-    headers_extra = {"Priority": "u=3, I"}  # V3 大写 I
-    raw = _do_request(params, headers_extra)
+    raw = data_hub.fetch("stock_f10_report", ticker=ticker, report_type="industry_growth")
     if not raw:
         print("  未获取到数据")
         return False
@@ -295,18 +263,7 @@ def run_industry_growth(ticker):
 # ============================================================
 def run_dupont(ticker):
     print(f"\n=== 杜邦分析行业排名: {ticker} ===")
-    params = {
-        "reportName": "RPT_PCF10_INDUSTRY_DBFX",
-        "columns": "ALL",
-        "filter": f'(SECUCODE="{ticker}")',
-        "sortTypes": 1,
-        "sortColumns": "PAIMING",
-        "source": "HSF10",
-        "client": "PC",
-        "v": str(int(datetime.now().timestamp() * 1000)),
-    }
-    headers_extra = {"Priority": "u=3, I"}  # V3 大写 I
-    raw = _do_request(params, headers_extra)
+    raw = data_hub.fetch("stock_f10_report", ticker=ticker, report_type="dupont")
     if not raw:
         print("  未获取到数据")
         return False
@@ -393,14 +350,17 @@ def main():
     import argparse
     parser = argparse.ArgumentParser(description="东方财富数据中心统一数据获取器")
     parser.add_argument('--ticker', required=True, help="股票代码，如 300433.SZ")
-    parser.add_argument('--type', choices=list(RUNNERS.keys()), required=True,
-                        help="数据类型")
+    parser.add_argument('--type', choices=list(RUNNERS.keys()) + ['all'], default='all',
+                        help="数据类型（默认all）")
     parser.add_argument('--all', action='store_true', help="获取全部类型")
     args = parser.parse_args()
 
-    if args.all:
+    if args.all or args.type == 'all':
         for rt in RUNNERS:
-            RUNNERS[rt](args.ticker)
+            try:
+                RUNNERS[rt](args.ticker)
+            except Exception as exc:
+                print(f"  获取 {rt} 时出现非致命异常: {exc}")
     else:
         RUNNERS[args.type](args.ticker)
 
