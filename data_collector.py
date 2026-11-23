@@ -21,6 +21,11 @@ import requests
 # 网络代理守护：默认直连、不使用系统代理。否则系统代理（翻墙用）一旦没开，
 # 新浪财经的请求就会全部抛 ProxyError，抓取静默失败。
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+try:
+    import app_paths as _ap_init
+    _ap_init.ensure_utf8_stdio()
+except Exception:
+    pass
 from net_guard import ensure_network_ready, retry_on_proxy_error, apply_collector_socket_timeout
 
 ensure_network_ready()

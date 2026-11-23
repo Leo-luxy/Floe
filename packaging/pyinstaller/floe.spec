@@ -28,10 +28,20 @@ datas = [
 ]
 
 # 收集根目录与子目录业务 .py 脚本（供冻结态 --run-script 动态调度执行）
-for py_file in glob.glob(os.path.join(PROJECT_ROOT, '*.py')):
+root_py_files = glob.glob(os.path.join(PROJECT_ROOT, '*.py'))
+has_config_py = any(os.path.basename(p) == 'config.py' for p in root_py_files)
+for py_file in root_py_files:
     bname = os.path.basename(py_file)
     if bname not in EXCLUDED_ROOT_PY:
         datas.append((py_file, '.'))
+if not has_config_py:
+    # 干净构建环境未带 config.py 时，确保把 config.example.py 自动打包为 config.py 兜底
+    cfg_ex_path = os.path.join(PROJECT_ROOT, 'config.example.py')
+    if os.path.isfile(cfg_ex_path):
+        import shutil as _spec_shutil
+        cfg_gen_path = os.path.join(PROJECT_ROOT, 'config.py')
+        _spec_shutil.copyfile(cfg_ex_path, cfg_gen_path)
+        datas.append((cfg_gen_path, '.'))
 
 for subdir in ('api', 'Process', 'daily', 'weekly', 'shenwan_config', 'data_hub', os.path.join('data_hub', 'providers')):
     src_dir = os.path.join(PROJECT_ROOT, subdir)

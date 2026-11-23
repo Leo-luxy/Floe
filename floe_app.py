@@ -28,20 +28,29 @@ _STATUS_BAR_REFS = {}
 
 
 def _ensure_valid_stdio():
-    """Windows GUI 模式 (console=False) 下 sys.stdout/stderr 可能为 None，兜底重定向至日志文件防止 print 崩溃。"""
+    """确保标准输出/错误流存在且为 UTF-8（Windows GUI 模式或 cp936 管道下防止乱码与 UnicodeEncodeError）。"""
+    os.environ.setdefault('PYTHONIOENCODING', 'utf-8')
+    os.environ.setdefault('PYTHONUTF8', '1')
+    for stream_name in ('stdout', 'stderr'):
+        stream = getattr(sys, stream_name, None)
+        if stream is not None and hasattr(stream, 'reconfigure'):
+            try:
+                stream.reconfigure(encoding='utf-8', errors='replace')
+            except Exception:
+                pass
     if sys.stdout is not None and sys.stderr is not None:
         return
     try:
         import app_paths
         log_dir = os.path.join(app_paths.get_user_data_dir(), 'log')
         os.makedirs(log_dir, exist_ok=True)
-        log_fp = open(os.path.join(log_dir, 'floe_gui.log'), 'a', encoding='utf-8', buffering=1)
+        log_fp = open(os.path.join(log_dir, 'floe_gui.log'), 'a', encoding='utf-8', errors='replace', buffering=1)
         if sys.stdout is None:
             sys.stdout = log_fp
         if sys.stderr is None:
             sys.stderr = log_fp
     except Exception:
-        devnull = open(os.devnull, 'w', encoding='utf-8')
+        devnull = open(os.devnull, 'w', encoding='utf-8', errors='replace')
         if sys.stdout is None:
             sys.stdout = devnull
         if sys.stderr is None:
@@ -85,8 +94,9 @@ def _dispatch_internal_script():
         sys.exit(0)
 
 
-# 必须在导入重型 GUI / Flask 模块前优先处理 PyInstaller 多进程冻结支持与子脚本拦截
+# 必须在导入重型 GUI / Flask 模块前优先处理 PyInstaller 多进程冻结支持、UTF-8 标准流与子脚本拦截
 multiprocessing.freeze_support()
+_ensure_valid_stdio()
 _dispatch_internal_script()
 
 

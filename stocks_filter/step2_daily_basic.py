@@ -17,6 +17,11 @@ import pandas as pd
 
 # 网络代理守护：默认直连、不使用系统代理，必须在联网请求之前导入
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+try:
+    import app_paths as _ap_init
+    _ap_init.ensure_utf8_stdio()
+except Exception:
+    pass
 from net_guard import ensure_network_ready, retry_on_proxy_error
 
 ensure_network_ready()

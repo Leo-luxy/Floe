@@ -40,6 +40,11 @@ from datetime import datetime, timedelta, date
 import pandas as pd
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+try:
+    import app_paths as _ap_init
+    _ap_init.ensure_utf8_stdio()
+except Exception:
+    pass
 from config import DATA_DIR, STOCK_TICKERS
 
 
@@ -208,7 +213,7 @@ def _execute_streaming(cmd, cwd=None, env=None, timeout=COMMAND_TIMEOUT_SECONDS)
 
     popen_kwargs = dict(
         shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-        text=True, encoding='utf-8', errors='replace', bufsize=1, cwd=cwd, env=env,
+        text=False, bufsize=0, cwd=cwd, env=env,
     )
     if os.name == 'nt':
         popen_kwargs['creationflags'] = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
@@ -219,10 +224,22 @@ def _execute_streaming(cmd, cwd=None, env=None, timeout=COMMAND_TIMEOUT_SECONDS)
     lines = []
     line_queue = queue.Queue()
 
+    def _decode_raw(raw):
+        if isinstance(raw, str):
+            return raw
+        try:
+            import app_paths as _ap_dec
+            return _ap_dec.decode_subprocess_bytes(raw)
+        except Exception:
+            try:
+                return bytes(raw).decode('utf-8')
+            except UnicodeDecodeError:
+                return bytes(raw).decode('gb18030', errors='replace')
+
     def _reader():
         try:
             for raw in process.stdout:
-                line_queue.put(raw)
+                line_queue.put(_decode_raw(raw))
         except Exception:
             pass
         finally:

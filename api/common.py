@@ -143,28 +143,42 @@ def execute_step(step_name: str, command: str, cwd: str, messages: list, timeout
         env = _ap.subprocess_env() if _ap is not None else os.environ.copy()
         env.setdefault('PYTHONUNBUFFERED', '1')
         run_cwd = (_ap.get_user_data_dir() if (_ap is not None and _ap.is_packaged_mode()) else cwd)
+        popen_extra = {}
+        if os.name == 'nt':
+            popen_extra['creationflags'] = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+        else:
+            popen_extra['start_new_session'] = True
+
         process = subprocess.Popen(
             command,
             shell=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            text=True,
-            encoding='utf-8',
-            errors='replace',
-            bufsize=1,
+            text=False,
+            bufsize=0,
             cwd=run_cwd,
             env=env,
-            start_new_session=True,  # 独立进程组，超时可整组终止
+            **popen_extra,
         )
 
         output_queue = queue.Queue()
         reader_done = threading.Event()
 
+        def _decode_raw(raw):
+            if isinstance(raw, str):
+                return raw
+            if _ap is not None and hasattr(_ap, 'decode_subprocess_bytes'):
+                return _ap.decode_subprocess_bytes(raw)
+            try:
+                return bytes(raw).decode('utf-8')
+            except UnicodeDecodeError:
+                return bytes(raw).decode('gb18030', errors='replace')
+
         def _reader():
             """后台逐行读取子进程输出，主线程不再直接阻塞在管道上。"""
             try:
                 for line in process.stdout:
-                    output_queue.put(line)
+                    output_queue.put(_decode_raw(line))
             except Exception:
                 pass
             finally:

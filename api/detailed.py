@@ -25,10 +25,14 @@ def _run_py_cmd(cmd: str):
         real_cmd = (f'"{sys.executable}" ' + cmd[len('python '):]) if cmd.startswith('python ') else cmd
         env = os.environ.copy()
         run_cwd = project_root
+    popen_extra = {}
+    if os.name == 'nt':
+        popen_extra['creationflags'] = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
     return subprocess.run(
         real_cmd, shell=True, capture_output=True,
         text=True, encoding='utf-8', errors='replace',
         cwd=run_cwd, env=env,
+        **popen_extra,
     )
 
 @detailed_bp.route('/detailed_function', methods=['POST'])

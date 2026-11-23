@@ -43,12 +43,35 @@ def _spawn_sector_cmd(cmd: str):
         real_cmd = (f'"{sys.executable}" ' + cmd[len('python '):]) if cmd.startswith('python ') else cmd
         env = os.environ.copy()
         run_cwd = project_root
+    popen_extra = {}
+    if os.name == 'nt':
+        popen_extra['creationflags'] = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
     return subprocess.Popen(
         real_cmd, shell=True,
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-        text=True, encoding='utf-8', errors='replace', bufsize=1,
+        text=False, bufsize=0,
         cwd=run_cwd, env=env,
+        **popen_extra,
     )
+
+
+def _iter_sector_lines(process):
+    """按行解码板块子进程输出：UTF-8 优先，失败自动回退 GB18030（兼容单测 StringIO 与真实 BytesIO 管道）。"""
+    while True:
+        raw = process.stdout.readline()
+        if not raw:
+            break
+        if isinstance(raw, str):
+            yield raw
+        else:
+            try:
+                import app_paths as _ap_dec
+                yield _ap_dec.decode_subprocess_bytes(raw)
+            except Exception:
+                try:
+                    yield raw.decode('utf-8')
+                except UnicodeDecodeError:
+                    yield raw.decode('gb18030', errors='replace')
 
 # 内存缓存：避免同一进程内反复请求 akshare
 _board_list_cache = {}
@@ -198,7 +221,7 @@ def run_sector_task(task_id, task_type, params):
             process = _spawn_sector_cmd(cmd)
 
             progress = 10
-            for line in iter(process.stdout.readline, ''):
+            for line in _iter_sector_lines(process):
                 if line.strip():
                     msg = line.strip()
                     messages.append(msg)
@@ -252,7 +275,7 @@ def run_sector_task(task_id, task_type, params):
         collect_process = _spawn_sector_cmd(collect_cmd)
 
         collect_progress = 5
-        for line in iter(collect_process.stdout.readline, ''):
+        for line in _iter_sector_lines(collect_process):
             if line.strip():
                 msg = line.strip()
                 messages.append(msg)
@@ -290,7 +313,7 @@ def run_sector_task(task_id, task_type, params):
 
             broad_collect_cmd = 'python sector_data_collector.py --type broad_index --code sh000001 --name "上证指数"'
             broad_process = _spawn_sector_cmd(broad_collect_cmd)
-            for line in iter(broad_process.stdout.readline, ''):
+            for line in _iter_sector_lines(broad_process):
                 if line.strip():
                     messages.append(line.strip())
                     sector_task_status[task_id] = {
@@ -312,7 +335,7 @@ def run_sector_task(task_id, task_type, params):
 
             broad_collect_cmd = 'python sector_data_collector.py --type broad_index'
             broad_process = _spawn_sector_cmd(broad_collect_cmd)
-            for line in iter(broad_process.stdout.readline, ''):
+            for line in _iter_sector_lines(broad_process):
                 if line.strip():
                     messages.append(line.strip())
                     sector_task_status[task_id] = {
@@ -344,7 +367,7 @@ def run_sector_task(task_id, task_type, params):
 
         report_path = None
         progress = 45
-        for line in iter(process.stdout.readline, ''):
+        for line in _iter_sector_lines(process):
             if line.strip():
                 msg = line.strip()
                 messages.append(msg)

@@ -144,19 +144,35 @@ def _run_command_stream(command, cwd, messages, prefix='', max_line_len=150, on_
             run_cwd = cwd
         env['PYTHONUNBUFFERED'] = '1'
         data_failures = []
+        popen_extra = {}
+        if os.name == 'nt':
+            popen_extra['creationflags'] = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
         process = subprocess.Popen(
             command,
             shell=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            text=True,
-            encoding='utf-8',
-            errors='replace',
+            text=False,
             cwd=run_cwd,
             env=env,
-            bufsize=1
+            bufsize=0,
+            **popen_extra,
         )
-        for line in iter(process.stdout.readline, ''):
+        while True:
+            raw_line = process.stdout.readline()
+            if not raw_line:
+                break
+            if isinstance(raw_line, str):
+                line = raw_line
+            else:
+                try:
+                    import app_paths as _ap_dec
+                    line = _ap_dec.decode_subprocess_bytes(raw_line)
+                except Exception:
+                    try:
+                        line = raw_line.decode('utf-8')
+                    except UnicodeDecodeError:
+                        line = raw_line.decode('gb18030', errors='replace')
             if line.strip():
                 status = parse_data_status(line)
                 if status:

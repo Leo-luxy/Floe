@@ -29,6 +29,35 @@ _SSL_CACHE = {
     'cafile': '',
 }
 
+
+def ensure_utf8_stdio() -> None:
+    """强制将标准输出/错误流重配置为 UTF-8（errors='replace'），防止 Windows GBK/cp936 导致中文乱码及 UnicodeEncodeError。"""
+    os.environ.setdefault('PYTHONIOENCODING', 'utf-8')
+    os.environ.setdefault('PYTHONUTF8', '1')
+    for stream_name in ('stdout', 'stderr'):
+        stream = getattr(sys, stream_name, None)
+        if stream is not None and hasattr(stream, 'reconfigure'):
+            try:
+                stream.reconfigure(encoding='utf-8', errors='replace')
+            except Exception:
+                pass
+
+
+def decode_subprocess_bytes(raw) -> str:
+    """安全解码子进程字节输出：优先 UTF-8，失败自动回退 GB18030，杜绝替换符乱码。"""
+    if raw is None:
+        return ''
+    if isinstance(raw, str):
+        return raw
+    if not isinstance(raw, (bytes, bytearray)):
+        return str(raw)
+    data = bytes(raw)
+    try:
+        return data.decode('utf-8')
+    except UnicodeDecodeError:
+        return data.decode('gb18030', errors='replace')
+
+
 _PACKAGED_DIR_CACHE = {
     'key': None,
     'path': None,
@@ -385,8 +414,9 @@ def _ensure_writable_runtime_caches(user_dir: str) -> None:
 
 
 def activate_runtime_paths() -> str:
-    """在打包模式下初始化用户目录并挂载至 sys.path 首位；源码首次克隆若缺 config.py 自动用模板初始化。"""
+    """在打包模式下初始化用户目录并挂载至 sys.path 首位；源码或打包态若缺 config.py 自动用模板初始化。"""
     import shutil
+    ensure_utf8_stdio()
     ensure_ssl_certificates()
     bundle_dir = get_bundle_dir()
     cfg_py = os.path.join(bundle_dir, 'config.py')
@@ -399,6 +429,12 @@ def activate_runtime_paths() -> str:
 
     if is_packaged_mode():
         user_dir = ensure_user_data_layout()
+        user_cfg_py = os.path.join(user_dir, 'config.py')
+        if not os.path.exists(cfg_py) and not os.path.exists(user_cfg_py) and os.path.isfile(cfg_ex):
+            try:
+                shutil.copyfile(cfg_ex, user_cfg_py)
+            except OSError:
+                pass
         os.environ['FLOE_USER_DATA_DIR'] = user_dir
         _ensure_writable_runtime_caches(user_dir)
         if bundle_dir not in sys.path:
@@ -524,3 +560,6 @@ def subprocess_env() -> dict:
         parts = [user_dir, bundle_dir] + ([existing_pp] if existing_pp else [])
         env['PYTHONPATH'] = os.pathsep.join(parts)
     return env
+
+
+ensure_utf8_stdio()

@@ -280,21 +280,25 @@ def run_command_with_output(task_id, cmd, cwd, description):
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            text=True,
-            encoding='utf-8',
-            errors='replace',
+            text=False,
             cwd=cwd,
-            bufsize=1,
-            universal_newlines=True,
+            bufsize=0,
             env=env,
             **popen_extra,
         )
         
         while True:
-            line = process.stdout.readline()
-            if line == '' and process.poll() is not None:
+            raw_line = process.stdout.readline()
+            if not raw_line and process.poll() is not None:
                 break
-            if line:
+            if raw_line:
+                if _ap is not None and hasattr(_ap, 'decode_subprocess_bytes'):
+                    line = _ap.decode_subprocess_bytes(raw_line)
+                else:
+                    try:
+                        line = raw_line.decode('utf-8')
+                    except UnicodeDecodeError:
+                        line = raw_line.decode('gb18030', errors='replace')
                 clean_line = line.strip()
                 if clean_line:
                     messages.append(clean_line)

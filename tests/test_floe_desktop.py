@@ -875,6 +875,68 @@ class FloeDesktopAndSettingsTest(unittest.TestCase):
             pos_qfq = analyzer.get_position_info({})
             self.assertAlmostEqual(float(pos_qfq['current_price']), 1519.8)
 
+    def test_windows_cp936_utf8_stdio_reconfigure_and_gbk_subprocess_decode(self):
+        """回归测试：模拟 Windows cp936/gbk 控制台与 GBK 子进程字节流，验证零乱码且永不抛 UnicodeEncodeError。"""
+        import app_paths
+        import floe_app
+        import api.stock_selection as sel_api
+        import stocks_filter.batch_backtest_filter as bbf
+
+        # 1. 模拟 Windows 中文控制台默认 cp936/gbk 管道流
+        raw_out_buf = io.BytesIO()
+        raw_err_buf = io.BytesIO()
+        gbk_stdout = io.TextIOWrapper(raw_out_buf, encoding='gbk', errors='strict')
+        gbk_stderr = io.TextIOWrapper(raw_err_buf, encoding='gbk', errors='strict')
+
+        with mock.patch.object(sys, 'stdout', gbk_stdout), \
+             mock.patch.object(sys, 'stderr', gbk_stderr):
+            # 在未重配置前，写入 \ufffd / ⚠️ / → 在 gbk(strict) 下必然失败；
+            # 调用 ensure_utf8_stdio / _ensure_valid_stdio 后必须自动转为 utf-8 + errors='replace'
+            app_paths.ensure_utf8_stdio()
+            floe_app._ensure_valid_stdio()
+
+            self.assertEqual(sys.stdout.encoding.lower(), 'utf-8')
+            self.assertEqual(sys.stderr.encoding.lower(), 'utf-8')
+            sys.stdout.write('测试特殊字符：⚠️ → ✅ \ufffd\n')
+            sys.stdout.flush()
+            written = raw_out_buf.getvalue().decode('utf-8')
+            self.assertIn('测试特殊字符：⚠️ → ✅', written)
+
+        # 2. 模拟子进程意外吐出 GBK 编码中文字节流：decode_subprocess_bytes 与批筛/选股捕获均应无损还原
+        gbk_msg = '交易日：20261120\n成功: 预检更新 000100.SZ 行情\n'.encode('gbk')
+        decoded = app_paths.decode_subprocess_bytes(gbk_msg)
+        self.assertNotIn('\ufffd', decoded)
+        self.assertIn('交易日：20261120', decoded)
+
+        with mock.patch.object(
+            bbf.subprocess,
+            'run',
+            return_value=subprocess.CompletedProcess(['cmd'], 0, stdout=gbk_msg, stderr=b''),
+        ):
+            cap_buf = io.StringIO()
+            with mock.patch.object(sys, 'stdout', cap_buf):
+                rc = bbf.run_command_status(['fake_exe', '--run-script', 'data_collector.py'], '预检测试')
+            self.assertEqual(rc, 0)
+            out_log = cap_buf.getvalue()
+            self.assertIn('交易日：20261120', out_log)
+            self.assertNotIn('\ufffd', out_log)
+
+        class _FakeProc:
+            def __init__(self, payload):
+                self.stdout = io.BytesIO(payload)
+            def poll(self):
+                return 0
+            def wait(self):
+                return 0
+
+        sel_api.selection_tasks['gbk_decode_test'] = {'status': 'running', 'progress': 0, 'messages': []}
+        with mock.patch.object(sel_api.subprocess, 'Popen', return_value=_FakeProc(gbk_msg)):
+            rc2 = sel_api.run_command_with_output('gbk_decode_test', ['fake'], str(PROJECT_ROOT), '测试步骤')
+        self.assertEqual(rc2, 0)
+        joined = '\n'.join(sel_api.selection_tasks['gbk_decode_test']['messages'])
+        self.assertIn('交易日：20261120', joined)
+        self.assertNotIn('\ufffd', joined)
+
 
 if __name__ == '__main__':
     unittest.main()

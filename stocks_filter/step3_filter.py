@@ -9,6 +9,11 @@ import os
 import sys
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+try:
+    import app_paths as _ap_init
+    _ap_init.ensure_utf8_stdio()
+except Exception:
+    pass
 
 # ==================== 配置 ====================
 INPUT_FILE = "stocks_daily_full.csv"      # 上一步合并的完整数据

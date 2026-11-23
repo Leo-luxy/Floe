@@ -35,6 +35,12 @@ import backtest_artifacts
 import indicator_provenance
 from strategy_params import get_params
 
+try:
+    import app_paths as _ap
+    _ap.ensure_utf8_stdio()
+except Exception:
+    _ap = None
+
 # 最终持仓表头（空结果也要写表头，避免旧文件冒充本期结果）
 HOLDING_COLUMNS = [
     '股票代码', '入场日期', '入场价格', '当前日期', '当前价格',
@@ -75,20 +81,60 @@ def _subprocess_env() -> dict:
 _LAST_CMD_ERROR_TAIL = ''
 
 
+def _decode_cmd_output(raw) -> str:
+    """解码子进程输出：优先 UTF-8，失败自动回退 GB18030，杜绝乱码与编码崩溃。"""
+    if raw is None:
+        return ''
+    if isinstance(raw, str):
+        return raw
+    if _ap is not None and hasattr(_ap, 'decode_subprocess_bytes'):
+        return _ap.decode_subprocess_bytes(raw)
+    data = bytes(raw)
+    try:
+        return data.decode('utf-8')
+    except UnicodeDecodeError:
+        return data.decode('gb18030', errors='replace')
+
+
+def _script_command_args(rel_or_abs_script: str, *extra_args):
+    """构造子进程参数列表（绕过 Windows cmd.exe 引号剥离与壳层转义问题）。"""
+    if _ap is not None and hasattr(_ap, 'python_script_argv'):
+        return _ap.python_script_argv(rel_or_abs_script, *extra_args)
+    exe = sys.executable or 'python'
+    if getattr(sys, 'frozen', False):
+        return [exe, '--run-script', rel_or_abs_script, *[str(a) for a in extra_args]]
+    return [exe, rel_or_abs_script, *[str(a) for a in extra_args]]
+
+
+def _format_cmd_display(cmd) -> str:
+    if isinstance(cmd, (list, tuple)):
+        return ' '.join(
+            f'"{x}"' if any(c in str(x) for c in ' \t') else str(x)
+            for x in cmd
+        )
+    return str(cmd)
+
+
 def run_command_status(cmd, description):
-    """执行命令并返回真实退出码（0 成功，-1 启动异常/超时）。"""
+    """执行命令并返回真实退出码（0 成功，-1 启动异常/超时）。支持 list(shell=False) 与 str(shell=True)。"""
     global _LAST_CMD_ERROR_TAIL
     _LAST_CMD_ERROR_TAIL = ''
+    use_shell = not isinstance(cmd, (list, tuple))
     print(f"\n{'='*60}")
     print(f"执行: {description}")
-    print(f"命令: {cmd}")
+    print(f"命令: {_format_cmd_display(cmd)}")
     print('='*60)
+    run_kwargs = dict(
+        shell=use_shell,
+        capture_output=True,
+        text=False,
+        timeout=600,
+        env=_subprocess_env(),
+    )
+    if os.name == 'nt':
+        run_kwargs['creationflags'] = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
     try:
-        result = subprocess.run(
-            cmd, shell=True, capture_output=True, text=True,
-            encoding='utf-8', errors='replace',
-            timeout=600, env=_subprocess_env(),
-        )
+        result = subprocess.run(cmd, **run_kwargs)
     except subprocess.TimeoutExpired:
         _LAST_CMD_ERROR_TAIL = '执行超时'
         print(f"超时: {description}")
@@ -97,13 +143,16 @@ def run_command_status(cmd, description):
         _LAST_CMD_ERROR_TAIL = str(exc)
         print(f"异常: {description} - {exc}")
         return -1
+
+    stdout_text = _decode_cmd_output(getattr(result, 'stdout', None))
+    stderr_text = _decode_cmd_output(getattr(result, 'stderr', None))
     if result.returncode == 0:
         print(f"成功: {description}")
-        if result.stdout:
-            print(f"输出:\n{result.stdout[-2000:] if len(result.stdout) > 2000 else result.stdout}")
+        if stdout_text:
+            print(f"输出:\n{stdout_text[-2000:] if len(stdout_text) > 2000 else stdout_text}")
     else:
         print(f"失败: {description}（returncode={result.returncode}）")
-        raw_err = (result.stderr or result.stdout or '').strip()
+        raw_err = (stderr_text or stdout_text or '').strip()
         tail = raw_err[-1500:]
         if tail:
             print(f"输出尾部:\n{tail}")
@@ -608,9 +657,11 @@ def main():
     except (StaleResultError, selection_snapshot.SelectionSnapshotError) as exc:
         code = 2
         status['error'] = f'结果身份/时效异常: {exc}'
+        print(f"错误：{status['error']}", flush=True)
     except Exception as exc:
         code = 3
         status['error'] = f'批筛异常: {type(exc).__name__}: {exc}'
+        print(f"错误：{status['error']}", flush=True)
     # 少量失败仍可发布：名单里的每一行都经过严格身份校验，只是覆盖面少了那几只，
     # 必须标降级并显式列出缺失股票，而不是把整份结果作废（否则缺 1 只就等于没结果）。
     status['degraded'] = bool(status['failed'] and code == 0)
