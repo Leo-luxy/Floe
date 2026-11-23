@@ -1,3 +1,27 @@
+# v2.0.3 — 修复 Windows 选股中文乱码 · 批筛预检 `UnicodeEncodeError` 崩溃 · 子进程全链路编码加固
+
+> 🛠️ 核心主题：**彻底根治 Windows 桌面版在中文系统代码页（`cp936/GBK`）下运行选股、数据采集及多维分析时的日志乱码与编码崩溃，并加固干净构建态 `config.py` 模板兜底**。
+
+---
+
+## 🐛 修复
+
+- **修复 Windows 版市场选股中文乱码与 `batch_backtest_filter.py` 返回码 3 失败（`floe_app.py`, `app_paths.py`, `stocks_filter/batch_backtest_filter.py`）**：
+  - 在 `app_paths.ensure_utf8_stdio()` 与 `floe_app._ensure_valid_stdio()` 中，无论 `sys.stdout` / `sys.stderr` 是否为 `None`，启动时（含 `--run-script` 子进程调度前）均强制重配置为 `UTF-8 (errors='replace')`；并在 `step1_daily.py`、`step2_daily_basic.py`、`step3_filter.py`、`data_collector.py`、`check_data_updates.py` 入口激活保护。
+  - 修复 Windows 下子进程默认按 `cp936/GBK` 输出中文被父进程按 `UTF-8 (errors='replace')` 解码为替换符 `\ufffd`（``），进而导致 `batch_backtest_filter.py` 在打印预检子进程输出时触发 `UnicodeEncodeError: 'gbk' codec can't encode character '\ufffd'` 并直接退出码 3 中断的问题；批筛异常分支同步输出明确报错详情。
+- **全链路子进程管道双编码安全解码与静默执行（`api/stock_selection.py`, `api/common.py`, `api/backtest.py`, `api/sector.py`, `api/detailed.py`, `check_data_updates.py`）**：
+  - 所有子进程实时流读取器改用二进制行读入并经 `decode_subprocess_bytes` 解码（`UTF-8` 优先，失败自动回退 `GB18030`），兼容操作系统原生命令行输出；Windows 下统一附加 `CREATE_NO_WINDOW`。
+- **打包态缺失 `config.py` 自动模板兜底（`packaging/pyinstaller/floe.spec`, `app_paths.py`）**：
+  - 若构建环境缺少 `config.py`，打包阶段自动将 `config.example.py` 打包为 `config.py`；运行阶段若包内与用户数据目录均无 `config.py`，自动由模板初始化。
+
+---
+
+## ✅ 质量
+
+- 回归单元测试扩充至 **339 项**（全部通过），在 `tests/test_floe_desktop.py` 中新增 Windows `cp936/gbk` 流重配置与 GBK 子进程字节流还原专项测试。
+
+---
+
 # v2.0.2 — 统一数据中心 `data_hub` · 全链路多源容灾 · 跨平台桌面与选股稳定性加固
 
 > 🛠️ 核心主题：**统一数据中心 `data_hub` 架构重构与跨平台桌面端（macOS / Windows / Linux）全链路选股、AI 研判、权限隔离及网络连通性加固**。

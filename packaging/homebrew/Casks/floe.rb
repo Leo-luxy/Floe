@@ -1,7 +1,7 @@
 cask "floe" do
   arch arm: "arm64", intel: "x64"
 
-  version "2.0.2"
+  version "2.0.3"
   sha256 arm:   "5957f35e28682ab2ffee73b3fab36ac200639e74cd3b1ae6729fd09f6940e7ac",
          intel: "1270c38a7519d6f83491ee6f618ac77359e237542c8c82ba9f8e6901cfc9c91a"
 
