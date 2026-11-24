@@ -31,9 +31,14 @@ def update_cask(sums_file: str):
     with open(cask_path, 'r', encoding='utf-8') as fh:
         text = fh.read()
 
-    text = re.sub(r'version\s+"[^"]+"', f'version "{version.APP_VERSION}"', text)
-    text = re.sub(r'arm:\s+"[^"]+"', f'arm:   "{arm_sha}"', text)
-    text = re.sub(r'intel:\s+"[^"]+"', f'intel: "{x64_sha}"', text)
+    text = re.sub(r'version\s+"[^"]+"', f'version "{version.APP_VERSION}"', text, count=1)
+    text, count = re.subn(
+        r'(sha256\s+arm:\s+)"[^"]+"(\s*,\s*\n\s*intel:\s+)"[^"]+"',
+        rf'\g<1>"{arm_sha}"\g<2>"{x64_sha}"',
+        text,
+    )
+    if count != 1:
+        raise RuntimeError(f'Failed to locate sha256 arm/intel block in {cask_path}')
 
     with open(cask_path, 'w', encoding='utf-8') as fh:
         fh.write(text)

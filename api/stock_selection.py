@@ -17,6 +17,11 @@ from stocks_filter.batch_backtest_filter import (atomic_status, expected_trade_a
     normalize_ticker, file_hash, get_params)
 import backtest_artifacts
 from config import DATA_DIR
+from .common import (
+    try_acquire_active_task,
+    release_active_task,
+    build_task_conflict_response,
+)
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 try:
@@ -484,26 +489,48 @@ def run_selection(task_id, preliminary, detailed):
     except Exception as e:
         messages.append(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 任务执行异常: {str(e)}")
         selection_tasks[task_id]['status'] = 'failed'
+    finally:
+        release_active_task(task_id)
 
 @stock_selection_bp.route('/stock_selection/run', methods=['POST'])
 def run_stock_selection():
-    data = request.get_json()
+    data = request.get_json() or {}
     preliminary = data.get('preliminary', False)
     detailed = data.get('detailed', False)
     
     if not preliminary and not detailed:
         return jsonify({'success': False, 'message': '请至少选择一种选股模式'})
     
+    detail_desc = (
+        '全市场初筛 + 批量回测' if (preliminary and detailed)
+        else ('仅全市场初筛' if preliminary else '仅批量趋势回测')
+    )
     task_id = f"selection_{int(time.time())}"
     selection_tasks[task_id] = {
         'status': 'pending',
         'progress': 0,
         'messages': ['任务已创建，等待执行...']
     }
-    
-    thread = threading.Thread(target=run_selection, args=(task_id, preliminary, detailed))
-    thread.daemon = True
-    thread.start()
+    acquired, active = try_acquire_active_task(
+        task_id,
+        task_key='selection',
+        page_key='selection',
+        task_name='市场选股',
+        task_detail=detail_desc,
+        status_getter=lambda tid=task_id: selection_tasks.get(tid),
+    )
+    if not acquired:
+        selection_tasks.pop(task_id, None)
+        return jsonify(build_task_conflict_response(active))
+
+    try:
+        thread = threading.Thread(target=run_selection, args=(task_id, preliminary, detailed))
+        thread.daemon = True
+        thread.start()
+    except Exception:
+        selection_tasks.pop(task_id, None)
+        release_active_task(task_id)
+        raise
     
     return jsonify({'success': True, 'task_id': task_id})
 

@@ -4,10 +4,16 @@ import os
 import sys
 import subprocess
 import json
+import time
 from flask import Blueprint, request, jsonify
 
 from utils import calculate_technical_indicators
-from .common import get_exchange_suffix
+from .common import (
+    get_exchange_suffix,
+    try_acquire_active_task,
+    release_active_task,
+    build_task_conflict_response,
+)
 
 # 创建蓝图
 detailed_bp = Blueprint('detailed', __name__)
@@ -38,7 +44,7 @@ def _run_py_cmd(cmd: str):
 @detailed_bp.route('/detailed_function', methods=['POST'])
 def detailed_function():
     """执行详细功能"""
-    data = request.json
+    data = request.json or {}
     function_type = data.get('function_type', '')
     data_type = data.get('data_type', '')
     stock_code = data.get('stock_code', '').strip()
@@ -50,7 +56,48 @@ def detailed_function():
         })
     
     full_stock_code = stock_code + get_exchange_suffix(stock_code)
-    
+
+    op_state = None
+    op_id = None
+    if function_type in ('fetch_data', 'analyze_data'):
+        if data_type not in ('daily', 'periodic', 'performance', 'shareholder', 'industry'):
+            return jsonify({
+                'success': False,
+                'message': '无效的数据类型'
+            })
+        action_label = '抓取' if function_type == 'fetch_data' else '分析'
+        op_id = f"detailed_{stock_code}_{int(time.time() * 1000)}"
+        op_state = {
+            'status': 'running',
+            'progress': 10,
+            'progress_label': f'正在{action_label} {data_type} 数据...',
+            'messages': [f'正在{action_label} {full_stock_code} ({data_type})...'],
+        }
+        acquired, active = try_acquire_active_task(
+            op_id,
+            task_key='ops-detailed',
+            page_key='settings-detailed',
+            task_name='数据操作',
+            task_detail=f'{full_stock_code} · {action_label}{data_type}',
+            status_getter=lambda st=op_state: st,
+        )
+        if not acquired:
+            return jsonify(build_task_conflict_response(active))
+
+    def _run_batch_commands(commands):
+        outputs = []
+        total = max(1, len(commands))
+        for idx, cmd in enumerate(commands):
+            if op_state is not None:
+                op_state['progress'] = int(10 + (85 * idx) / total)
+                op_state['progress_label'] = f'正在执行 ({idx + 1}/{total})'
+                op_state['messages'].append(f'[{idx + 1}/{total}] {cmd}')
+            result = _run_py_cmd(cmd)
+            outputs.append(f"执行命令: {cmd}\n输出: {result.stdout}\n错误: {result.stderr}\n返回码: {result.returncode}")
+        if op_state is not None:
+            op_state['progress'] = 95
+        return outputs
+
     try:
         if function_type == 'fetch_data':
             # 抓取数据
@@ -63,11 +110,7 @@ def detailed_function():
                     f'python em_financial_collector.py --ticker {full_stock_code}',
                     f'python calculate_financial_indicators.py --ticker {full_stock_code}'
                 ]
-                # 依次执行命令
-                outputs = []
-                for cmd in commands:
-                    result = _run_py_cmd(cmd)
-                    outputs.append(f"执行命令: {cmd}\n输出: {result.stdout}\n错误: {result.stderr}\n返回码: {result.returncode}")
+                outputs = _run_batch_commands(commands)
                 return jsonify({
                     'success': True,
                     'message': '低频数据抓取完成',
@@ -80,10 +123,7 @@ def detailed_function():
                         f'python check_data_updates.py --ticker {full_stock_code}',
                         f'python calculate_technical_trend_ds.py --ticker {full_stock_code}',
                     ]
-                    outputs = []
-                    for cmd in commands:
-                        result = _run_py_cmd(cmd)
-                        outputs.append(f"执行命令: {cmd}\n输出: {result.stdout}\n错误: {result.stderr}\n返回码: {result.returncode}")
+                    outputs = _run_batch_commands(commands)
                     return jsonify({'success': True, 'message': '日更数据抓取完成', 'output': '\n\n'.join(outputs)})
                 elif data_type == 'performance':
                     # 抓取业绩预告与分红数据
@@ -95,11 +135,7 @@ def detailed_function():
                         f'python shareholder_num_collector.py --ticker {full_stock_code}',
                         f'python org_hold_collector.py --ticker {full_stock_code}'
                     ]
-                    # 依次执行命令
-                    outputs = []
-                    for cmd in commands:
-                        result = _run_py_cmd(cmd)
-                        outputs.append(f"执行命令: {cmd}\n输出: {result.stdout}\n错误: {result.stderr}\n返回码: {result.returncode}")
+                    outputs = _run_batch_commands(commands)
                     return jsonify({
                         'success': True,
                         'message': '股东数据抓取完成',
@@ -111,11 +147,7 @@ def detailed_function():
                         f'python eastmoney_fetcher.py --type all --ticker {full_stock_code}',
                         f'python shenwan_industry_collector.py --ticker {full_stock_code}'
                     ]
-                    # 依次执行命令
-                    outputs = []
-                    for cmd in commands:
-                        result = _run_py_cmd(cmd)
-                        outputs.append(f"执行命令: {cmd}\n输出: {result.stdout}\n错误: {result.stderr}\n返回码: {result.returncode}")
+                    outputs = _run_batch_commands(commands)
                     return jsonify({
                         'success': True,
                         'message': '同行对比数据抓取完成',
@@ -128,6 +160,9 @@ def detailed_function():
                     })
                 
                 # 执行命令
+                if op_state is not None:
+                    op_state['progress'] = 35
+                    op_state['messages'].append(command)
                 result = _run_py_cmd(command)
                 
                 if result.returncode == 0:
@@ -167,6 +202,9 @@ def detailed_function():
                 })
             
             # 执行命令
+            if op_state is not None:
+                op_state['progress'] = 35
+                op_state['messages'].append(command)
             result = _run_py_cmd(command)
             
             if result.returncode == 0:
@@ -539,11 +577,16 @@ def detailed_function():
             'success': False,
             'message': f'执行功能失败：{str(e)}'
         })
+    finally:
+        if op_state is not None:
+            op_state['status'] = 'completed'
+        if op_id is not None:
+            release_active_task(op_id)
 
 @detailed_bp.route('/execute_single_function', methods=['POST'])
 def execute_single_function():
     """执行单功能"""
-    data = request.json
+    data = request.json or {}
     category = data.get('category', '')
     program = data.get('program', '')
     stock_code = data.get('stock_code', '').strip()
@@ -561,7 +604,24 @@ def execute_single_function():
         })
     
     full_stock_code = stock_code + get_exchange_suffix(stock_code)
-    
+    op_id = f"single_{stock_code}_{int(time.time() * 1000)}"
+    op_state = {
+        'status': 'running',
+        'progress': 30,
+        'progress_label': f'正在运行 {program}',
+        'messages': [f'正在运行 {program} --ticker {full_stock_code}'],
+    }
+    acquired, active = try_acquire_active_task(
+        op_id,
+        task_key='ops-single',
+        page_key='settings-single',
+        task_name='脚本运行',
+        task_detail=f'{program} ({full_stock_code})',
+        status_getter=lambda st=op_state: st,
+    )
+    if not acquired:
+        return jsonify(build_task_conflict_response(active))
+
     try:
         # 构建命令
         if program.startswith('daily/'):
@@ -592,3 +652,6 @@ def execute_single_function():
             'success': False,
             'message': f'执行程序失败：{str(e)}'
         })
+    finally:
+        op_state['status'] = 'completed'
+        release_active_task(op_id)

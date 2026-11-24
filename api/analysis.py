@@ -9,9 +9,24 @@ from .common import (
     get_exchange_suffix,
     analysis_queue,
     task_status,
+    get_active_task_info,
+    try_acquire_active_task,
+    release_active_task,
+    build_task_conflict_response,
 )
 
 analysis_bp = Blueprint('analysis', __name__)
+
+
+@analysis_bp.route('/active_task', methods=['GET'])
+def get_active_task():
+    """查询当前是否有后台任务正在运行，用于前端互斥弹窗与按钮态恢复。"""
+    active = get_active_task_info()
+    return jsonify({
+        'success': True,
+        'has_active_task': active is not None,
+        'active_task': active,
+    })
 
 
 @analysis_bp.route('/analyze', methods=['POST'])
@@ -33,17 +48,36 @@ def analyze():
     if not stock_code or len(stock_code) != 6 or not stock_code.isdigit():
         return jsonify({'success': False, 'message': '请输入6位数字的股票代码'})
 
+    full_stock_code = f'{stock_code}{get_exchange_suffix(stock_code)}'
     task_id = f"full_{stock_code}_{int(time.time())}"
     task_status[task_id] = {
         'status': 'pending', 'progress': 0,
         'messages': ['完整分析任务已加入队列（五维度两层决策）']
     }
-    analysis_queue.put((task_id, stock_code, 'init'))
+    acquired, active = try_acquire_active_task(
+        task_id,
+        task_key='ai-full',
+        page_key='ai-full',
+        task_name='完整五维分析',
+        task_detail=full_stock_code,
+        status_getter=lambda tid=task_id: task_status.get(tid),
+        extra={'stock_code': stock_code},
+    )
+    if not acquired:
+        task_status.pop(task_id, None)
+        return jsonify(build_task_conflict_response(active))
+
+    try:
+        analysis_queue.put((task_id, stock_code, 'init'))
+    except Exception:
+        task_status.pop(task_id, None)
+        release_active_task(task_id)
+        raise
 
     return jsonify({
         'success': True,
         'task_id': task_id,
-        'message': f'完整分析已启动: {stock_code}{get_exchange_suffix(stock_code)}'
+        'message': f'完整分析已启动: {full_stock_code}'
     })
 
 

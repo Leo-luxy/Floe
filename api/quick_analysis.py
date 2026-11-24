@@ -15,6 +15,9 @@ from .common import (
     quick_queue,
     task_status,
     QUICK_STRATEGY_MAP,
+    try_acquire_active_task,
+    release_active_task,
+    build_task_conflict_response,
 )
 
 quick_analysis_bp = Blueprint('quick_analysis', __name__)
@@ -53,21 +56,40 @@ def quick_analyze():
     if not stock_code or len(stock_code) != 6 or not stock_code.isdigit():
         return jsonify({'success': False, 'message': '请输入6位数字的股票代码'})
 
+    mode_names = {'short': '短期交易', 'medium': '中期持仓', 'long': '长期投资'}
+    full_stock_code = f'{stock_code}{get_exchange_suffix(stock_code)}'
     task_id = f"quick_{stock_code}_{strategy_mode}_{int(time.time())}"
     task_status[task_id] = {
         'status': 'pending', 'progress': 0,
         'messages': ['快速分析任务已加入队列（仅K线技术面）']
     }
-    quick_queue.put((task_id, stock_code, task_type, strategy_mode))
+    acquired, active = try_acquire_active_task(
+        task_id,
+        task_key='ai-quick',
+        page_key='ai-quick',
+        task_name='快速研判',
+        task_detail=f'{full_stock_code} · {mode_names[strategy_mode]}',
+        status_getter=lambda tid=task_id: task_status.get(tid),
+        extra={'stock_code': stock_code, 'strategy_mode': strategy_mode},
+    )
+    if not acquired:
+        task_status.pop(task_id, None)
+        return jsonify(build_task_conflict_response(active))
 
-    mode_names = {'short': '短期交易', 'medium': '中期持仓', 'long': '长期投资'}
+    try:
+        quick_queue.put((task_id, stock_code, task_type, strategy_mode))
+    except Exception:
+        task_status.pop(task_id, None)
+        release_active_task(task_id)
+        raise
+
     kline_view = QUICK_STRATEGY_MAP.get(strategy_mode, 'trend_following')
     return jsonify({
         'success': True,
         'task_id': task_id,
         'strategy_mode': strategy_mode,
         'kline_perspective': kline_view,
-        'message': f'快速分析已启动(K线技术面): {stock_code}{get_exchange_suffix(stock_code)} [{mode_names[strategy_mode]} → {kline_view}]'
+        'message': f'快速分析已启动(K线技术面): {full_stock_code} [{mode_names[strategy_mode]} → {kline_view}]'
     })
 
 

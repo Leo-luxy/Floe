@@ -12,7 +12,12 @@ import threading
 import queue
 import re
 import shlex
-from api.common import parse_data_status
+from api.common import (
+    parse_data_status,
+    try_acquire_active_task,
+    release_active_task,
+    build_task_conflict_response,
+)
 
 # 创建蓝图
 backtest_bp = Blueprint('backtest', __name__)
@@ -368,6 +373,8 @@ def run_backtest_task(task_id, skip_data_update=False, use_simplified=False):
             'progress': 100,
             'messages': [f'任务执行失败：{str(e)}']
         }
+    finally:
+        release_active_task(task_id)
 
 def backtest_worker():
     """回测任务工作线程"""
@@ -414,8 +421,24 @@ def run_backtest():
         'messages': ['任务已加入队列，等待处理'],
         'mode': f'{flow_mode} - {strategy_mode}'
     }
-    
-    backtest_task_queue.put((task_id, skip_data_update, use_simplified))
+    acquired, active = try_acquire_active_task(
+        task_id,
+        task_key='backtest',
+        page_key='backtest',
+        task_name='策略回测',
+        task_detail=f'{flow_mode} · {strategy_mode}',
+        status_getter=lambda tid=task_id: backtest_task_status.get(tid),
+    )
+    if not acquired:
+        backtest_task_status.pop(task_id, None)
+        return jsonify(build_task_conflict_response(active))
+
+    try:
+        backtest_task_queue.put((task_id, skip_data_update, use_simplified))
+    except Exception:
+        backtest_task_status.pop(task_id, None)
+        release_active_task(task_id)
+        raise
     
     return jsonify({
         'success': True,

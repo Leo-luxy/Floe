@@ -1,3 +1,33 @@
+# v2.1.0 — 单任务运行互斥保护 · 动态运行态按钮 · 实时任务冲突进度弹窗与 Homebrew 分发修复
+
+> 🛡️ 核心主题：**引入前后端协同的全局单任务执行锁与实时进度冲突弹窗，彻底杜绝并发触发任务导致的数据指纹竞态或限流失败，并修复 Homebrew Cask 架构声明被哈希更新脚本误覆盖的跨平台分发隐患**。
+
+---
+
+## 🆕 新增
+
+- **全局单任务运行互斥保护与实时查询端点（`api/common.py`, `api/analysis.py`, `api/quick_analysis.py`, `api/stock_selection.py`, `api/backtest.py`, `api/sector.py`, `api/detailed.py`）**：
+  - 新增线程安全的全局活跃任务槽锁（`try_acquire_active_task` / `get_active_task_info` / `release_active_task`），覆盖市场选股、策略回测、快速研判、完整五维分析、板块 AI 分析/数据更新以及系统设置运维脚本执行（只读查询除外），在任务终态时自动自愈释放；同时在 `web_ui.py` 与 `floe_app.py --web` 启用 `threaded=True`，保障进度轮询不阻塞。
+  - 新增 `GET /api/active_task` 接口，支持前端实时查询正在运行的任务名称、详情、百分比进度与最新日志摘要，多标签页或刷新后也可自动拦截与恢复。
+- **动态运行态按钮与冲突进度实时弹窗（`templates/index.html`, `static/css/workbench.css`, `static/js/i18n.js`）**：
+  - 当前正在执行任务对应的启动按钮自动进入旋转加载态并显示对应任务名称（如「正在进行市场选股」「正在进行策略回测」「正在进行快速研判」等），任务完成后自动恢复可点击原状。
+  - 当任意任务正在运行时，点击页面内其他「开始任务」按钮不再无反应或报错，而是立即弹出实时冲突提示弹窗（`#taskConflictModal`），动态展示当前正在运行的任务名称、实时进度条、最新步骤动态与「前往查看该任务 →」快捷跳转按钮，完整适配深浅色主题与中英双语切换。
+
+---
+
+## 🐛 修复
+
+- **修复 Homebrew Cask `arch` 架构字段被误覆盖的问题（`packaging/scripts/update_cask_sha.py`, `packaging/homebrew/Casks/floe.rb`）**：
+  - 收紧 `update_cask_sha.py` 的正则匹配规则仅针对 `sha256` 区块替换 `arm`/`intel` 哈希，并恢复 `floe.rb` 顶部的 `arch arm: "arm64", intel: "x64"` 声明，避免 macOS Homebrew 安装器拼接出错误的 `.dmg` 下载地址。
+
+---
+
+## ✅ 质量
+
+- 回归单元测试扩充至 **343 项**（全部通过），新增 `tests/test_task_mutex.py` 覆盖后端全部异步/同步任务路由并发互斥、前端按钮运行态与弹窗流程模拟以及 `update_cask_sha.py` 架构声明保护校验。
+
+---
+
 # v2.0.3 — 修复 Windows 选股中文乱码 · 批筛预检 `UnicodeEncodeError` 崩溃 · 子进程全链路编码加固
 
 > 🛠️ 核心主题：**彻底根治 Windows 桌面版在中文系统代码页（`cp936/GBK`）下运行选股、数据采集及多维分析时的日志乱码与编码崩溃，并加固干净构建态 `config.py` 模板兜底**。

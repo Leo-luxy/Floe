@@ -117,20 +117,20 @@ class FloeDesktopAndSettingsTest(unittest.TestCase):
         import app_paths
 
         fake_release = {
-            'tag_name': 'v2.1.0',
-            'name': 'Floe Version 2.1.0',
+            'tag_name': 'v99.1.0',
+            'name': 'Floe Version 99.1.0',
             'published_at': '2026-12-01T10:00:00Z',
-            'html_url': 'https://github.com/Leo-luxy/Floe/releases/tag/v2.1.0',
+            'html_url': 'https://github.com/Leo-luxy/Floe/releases/tag/v99.1.0',
             'body': '### New features\n- Faster backtest',
             'assets': [
                 {
-                    'name': 'Floe-v2.1.0-macos-arm64.dmg',
-                    'browser_download_url': 'https://github.com/Leo-luxy/Floe/releases/download/v2.1.0/Floe-v2.1.0-macos-arm64.dmg',
+                    'name': 'Floe-v99.1.0-macos-arm64.dmg',
+                    'browser_download_url': 'https://github.com/Leo-luxy/Floe/releases/download/v99.1.0/Floe-v99.1.0-macos-arm64.dmg',
                     'size': 85 * 1024 * 1024,
                 },
                 {
-                    'name': 'Floe-v2.1.0-windows-x64.zip',
-                    'browser_download_url': 'https://github.com/Leo-luxy/Floe/releases/download/v2.1.0/Floe-v2.1.0-windows-x64.zip',
+                    'name': 'Floe-v99.1.0-windows-x64.zip',
+                    'browser_download_url': 'https://github.com/Leo-luxy/Floe/releases/download/v99.1.0/Floe-v99.1.0-windows-x64.zip',
                     'size': 90 * 1024 * 1024,
                 },
             ],
@@ -158,7 +158,7 @@ class FloeDesktopAndSettingsTest(unittest.TestCase):
                     upd = client.get('/api/settings/check_update').get_json()
                 self.assertTrue(upd['success'])
                 self.assertTrue(upd['has_update'])
-                self.assertEqual(upd['latest_version'], '2.1.0')
+                self.assertEqual(upd['latest_version'], '99.1.0')
                 self.assertEqual(upd['upgrade_command'], 'brew upgrade --cask floe')
 
                 with mock.patch('urllib.request.urlopen', return_value=_FakeResp()):
@@ -365,9 +365,9 @@ class FloeDesktopAndSettingsTest(unittest.TestCase):
         client = web_ui.app.test_client()
 
         fake_ver_py = (
-            'APP_VERSION = "2.2.0"\n'
-            'RELEASE_CHANGELOG_ZH = "### Floe v2.2.0 更新\\n- 纯国内免代理检查更新"\n'
-            'RELEASE_CHANGELOG_EN = "### Floe v2.2.0\\n- Domestic CDN update check"\n'
+            'APP_VERSION = "99.2.0"\n'
+            'RELEASE_CHANGELOG_ZH = "### Floe v99.2.0 更新\\n- 纯国内免代理检查更新"\n'
+            'RELEASE_CHANGELOG_EN = "### Floe v99.2.0\\n- Domestic CDN update check"\n'
         ).encode('utf-8')
 
         class _CdnResp:
@@ -389,7 +389,7 @@ class FloeDesktopAndSettingsTest(unittest.TestCase):
 
         self.assertTrue(upd['success'])
         self.assertTrue(upd['has_update'])
-        self.assertEqual(upd['latest_version'], '2.2.0')
+        self.assertEqual(upd['latest_version'], '99.2.0')
         self.assertIsNotNone(upd['recommended_asset'])
 
         # 模拟第 1 个行情网关抛 RemoteDisconnected，第 2 个网关正常返回 200

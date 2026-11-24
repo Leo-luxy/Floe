@@ -133,4 +133,4 @@ if __name__ == '__main__':
     print(f"股票分析 Web 界面：http://{run_host}:{run_port}（debug={run_debug}）")
     if run_host in ('0.0.0.0', '::'):
         print("提示：当前监听所有网卡，局域网内其他设备可以访问该服务")
-    app.run(host=run_host, port=run_port, debug=run_debug)
+    app.run(host=run_host, port=run_port, debug=run_debug, threaded=True)

@@ -12,6 +12,11 @@ from datetime import datetime
 from flask import Blueprint, request, jsonify
 import threading
 import queue
+from .common import (
+    try_acquire_active_task,
+    release_active_task,
+    build_task_conflict_response,
+)
 
 # 创建蓝图
 sector_bp = Blueprint('sector', __name__)
@@ -413,6 +418,8 @@ def run_sector_task(task_id, task_type, params):
             'status': 'failed', 'progress': 100,
             'messages': [f'任务执行异常：{str(e)}'],
         }
+    finally:
+        release_active_task(task_id)
 
 
 def sector_worker():
@@ -448,7 +455,24 @@ def sector_collect():
         'status': 'pending', 'progress': 0,
         'messages': [f'数据采集任务已加入队列 (类型: {collect_type})'],
     }
-    sector_task_queue.put((task_id, 'collect', {'collect_type': collect_type}))
+    acquired, active = try_acquire_active_task(
+        task_id,
+        task_key='sector-collect',
+        page_key='sector',
+        task_name='板块数据更新',
+        task_detail=f'类型: {collect_type}',
+        status_getter=lambda tid=task_id: sector_task_status.get(tid),
+    )
+    if not acquired:
+        sector_task_status.pop(task_id, None)
+        return jsonify(build_task_conflict_response(active))
+
+    try:
+        sector_task_queue.put((task_id, 'collect', {'collect_type': collect_type}))
+    except Exception:
+        sector_task_status.pop(task_id, None)
+        release_active_task(task_id)
+        raise
 
     return jsonify({
         'success': True,
@@ -478,10 +502,27 @@ def sector_analyze():
         'status': 'pending', 'progress': 0,
         'messages': [f'板块分析任务已加入队列 (代码: {sector_code})'],
     }
-    sector_task_queue.put((task_id, 'analyze_single', {
-        'sector_code': sector_code,
-        'sector_type': sector_type,
-    }))
+    acquired, active = try_acquire_active_task(
+        task_id,
+        task_key='sector-analyze',
+        page_key='sector',
+        task_name='板块 AI 分析',
+        task_detail=sector_code,
+        status_getter=lambda tid=task_id: sector_task_status.get(tid),
+    )
+    if not acquired:
+        sector_task_status.pop(task_id, None)
+        return jsonify(build_task_conflict_response(active))
+
+    try:
+        sector_task_queue.put((task_id, 'analyze_single', {
+            'sector_code': sector_code,
+            'sector_type': sector_type,
+        }))
+    except Exception:
+        sector_task_status.pop(task_id, None)
+        release_active_task(task_id)
+        raise
 
     return jsonify({
         'success': True,

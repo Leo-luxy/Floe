@@ -312,7 +312,24 @@
         '计算程序': 'Calculation Scripts',
         '抓取程序': 'Collector Scripts',
         '▶ 运行脚本': '▶ Run Script',
-        '请选择脚本并输入股票代码运行': 'Select a script and enter 6-digit ticker'
+        '请选择脚本并输入股票代码运行': 'Select a script and enter 6-digit ticker',
+
+        // 任务互斥状态与运行中提示弹窗
+        '正在进行市场选股': 'Running Market Screener...',
+        '正在进行策略回测': 'Running Backtest...',
+        '正在进行快速研判': 'Running Quick AI...',
+        '正在进行完整五维分析': 'Running Full 5D Analysis...',
+        '正在进行板块 AI 分析': 'Running Sector AI...',
+        '正在进行板块数据更新': 'Updating Sector Data...',
+        '正在进行数据操作': 'Running Data Ops...',
+        '正在进行脚本运行': 'Running Script...',
+        '⏳ 当前已有任务正在运行': '⏳ A Task Is Currently Running',
+        '当前版本暂不支持同时执行多项任务，请等待下方正在运行的任务完成后再试。': 'Concurrent task execution is not supported yet. Please wait for the active task below to finish.',
+        '正在运行的任务': 'Active Task',
+        '当前进度': 'Progress',
+        '当前步骤 / 最新动态': 'Current Step / Latest Update',
+        '知道了': 'Got It',
+        '前往查看该任务 →': 'View Running Task →'
     };
 
     const PLACEHOLDER_DICT = {

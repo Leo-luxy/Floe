@@ -63,6 +63,111 @@ def get_exchange_suffix(stock_code: str) -> str:
 task_queue = queue.Queue()
 task_status = _load_task_status()
 
+_active_task_lock = threading.RLock()
+_active_task_slot = None
+
+
+def _extract_latest_message(messages) -> str:
+    """从任务日志列表中提取最后一条非空文本，供冲突弹窗摘要展示。"""
+    if not isinstance(messages, (list, tuple)):
+        return ''
+    for item in reversed(messages):
+        text = str(item or '').strip()
+        if text:
+            return text
+    return ''
+
+
+def get_active_task_info():
+    """获取当前正在运行的全局活跃任务信息；若底层任务已终态则自动自愈释放槽位。"""
+    global _active_task_slot
+    with _active_task_lock:
+        slot = _active_task_slot
+        if not slot:
+            return None
+        getter = slot.get('status_getter')
+        raw = None
+        if callable(getter):
+            try:
+                raw = getter()
+            except Exception:
+                raw = None
+        if not isinstance(raw, dict) or raw.get('status') not in ('pending', 'running'):
+            _active_task_slot = None
+            return None
+
+        try:
+            progress = max(0, min(100, int(float(raw.get('progress') or 0))))
+        except (TypeError, ValueError):
+            progress = 0
+
+        return {
+            'task_id': slot['task_id'],
+            'task_key': slot['task_key'],
+            'page_key': slot['page_key'],
+            'task_name': slot['task_name'],
+            'task_detail': slot.get('task_detail', ''),
+            'status': raw.get('status', 'running'),
+            'progress': progress,
+            'progress_label': str(raw.get('progress_label') or ''),
+            'latest_message': _extract_latest_message(raw.get('messages')),
+            'started_at': slot.get('started_at', ''),
+            'extra': dict(slot.get('extra') or {}),
+        }
+
+
+def try_acquire_active_task(
+    task_id: str,
+    task_key: str,
+    page_key: str,
+    task_name: str,
+    task_detail: str = '',
+    status_getter=None,
+    extra=None,
+):
+    """尝试占用全局单任务执行槽；若已有任务运行中则立即返回 (False, active_info)。"""
+    global _active_task_slot
+    with _active_task_lock:
+        current = get_active_task_info()
+        if current is not None:
+            return False, current
+        _active_task_slot = {
+            'task_id': task_id,
+            'task_key': task_key,
+            'page_key': page_key,
+            'task_name': task_name,
+            'task_detail': task_detail or '',
+            'status_getter': status_getter,
+            'started_at': time.strftime('%Y-%m-%d %H:%M:%S'),
+            'extra': dict(extra or {}),
+        }
+        return True, get_active_task_info()
+
+
+def release_active_task(task_id: str = None):
+    """释放全局单任务执行槽；传入 task_id 时仅在匹配时释放，防止误删新任务。"""
+    global _active_task_slot
+    with _active_task_lock:
+        if _active_task_slot is None:
+            return
+        if task_id is None or _active_task_slot.get('task_id') == task_id:
+            _active_task_slot = None
+
+
+def build_task_conflict_response(active_info: dict) -> dict:
+    """构造统一的任务互斥冲突响应体，包含当前运行任务与实时进度。"""
+    info = active_info or {}
+    name = str(info.get('task_name') or '后台任务')
+    detail = str(info.get('task_detail') or '').strip()
+    desc = f'{name}（{detail}）' if detail else name
+    prog = int(info.get('progress') or 0)
+    return {
+        'success': False,
+        'task_conflict': True,
+        'active_task': info,
+        'message': f'当前已有任务正在运行：{desc}（进度 {prog}%），请等待完成后再试',
+    }
+
 def _terminate_process_group(process):
     """终止子进程及其派生的整棵进程树（进程组），用于超时清理。"""
     try:
@@ -425,6 +530,8 @@ def run_analysis_task(task_id: str, stock_code: str, task_type: str):
     except Exception as e:
         task_status[task_id] = {'status': 'failed', 'progress': 100, 'messages': [f'任务执行失败：{str(e)}']}
         _save_task_status()
+    finally:
+        release_active_task(task_id)
 
 
 # ============================================================
@@ -467,6 +574,8 @@ def run_quick_task(task_id: str, stock_code: str, task_type: str, strategy_mode:
     except Exception as e:
         task_status[task_id] = {'status': 'failed', 'progress': 100, 'messages': [f'任务执行失败：{str(e)}']}
         _save_task_status()
+    finally:
+        release_active_task(task_id)
 
 
 # ============================================================

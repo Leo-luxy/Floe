@@ -6,7 +6,7 @@ APP_SLOGAN_ZH = "适合中国宝宝体质的 A 股选股软件"
 APP_SLOGAN_EN = "A-Share Screener Tailored for CN Investors"
 APP_DISPLAY_ZH = f"{APP_NAME} · {APP_SLOGAN_ZH}"
 APP_DISPLAY_EN = f"{APP_NAME} · {APP_SLOGAN_EN}"
-APP_VERSION = "2.0.3"
+APP_VERSION = "2.1.0"
 AUTHOR_EMAIL = "luleo856@gmail.com"
 
 GITHUB_REPO = "Leo-luxy/Floe"
@@ -19,12 +19,12 @@ HOMEBREW_TAP = "Leo-luxy/tap"
 HOMEBREW_CASK = "floe"
 NPM_PACKAGE = "@leo-luxy/floe"
 
-RELEASE_CHANGELOG_ZH = """### Floe v2.0.3 更新内容
-- **修复 Windows 版市场选股中文乱码与 `batch_backtest_filter.py` 返回码 3 崩溃**：在 `floe_app.py`（含 `--run-script` 内部子脚本调度）、`app_paths.py` 及各采集/选股脚本入口全局强制将 `sys.stdout` / `sys.stderr` 重配置为 `UTF-8 (errors='replace')`，彻底解决 Windows `cp936/GBK` 控制台因无法编码替换符 `\ufffd` 或状态图标导致批筛预检第 1 只股票即异常终止的问题。
-- **全链路子进程管道双编码安全解码**：统一为市场选股、完整/快速分析、策略回测、板块分析与日更数据检查 (`check_data_updates.py`) 的实时管道读取接入「UTF-8 优先、失败自动回退 `GB18030`」解码机制，并在 Windows 全部子进程调用中启用 `CREATE_NO_WINDOW`。
-- **加固打包态 `config.py` 模板兜底**：在 `packaging/pyinstaller/floe.spec` 与 `app_paths.activate_runtime_paths()` 中增加缺失 `config.py` 时自动由 `config.example.py` 初始化的保护，确保所有构建环境生成的安装包开箱即用。"""
+RELEASE_CHANGELOG_ZH = """### Floe v2.1.0 更新内容
+- **全局单任务运行互斥保护（前后端协同防并发冲突）**：在 `api/common.py` 引入全局活跃任务槽锁（`try_acquire_active_task` / `get_active_task_info`）与 `/api/active_task` 实时状态端点，统一覆盖市场选股、策略回测、快速研判、完整五维分析、板块分析/采集与系统运维数据/脚本执行；同时为 `web_ui.py` 与 `floe_app.py --web` 启用 `threaded=True`，防止同步运维操作阻塞状态轮询。
+- **动态运行态按钮与冲突进度实时弹窗**：当前正在运行任务的启动按钮自动切换为旋转加载态并显示对应任务名称（如「正在进行市场选股」「正在进行策略回测」等）；点击其他任意「开始任务」按钮时即时弹出实时监控弹窗，展示正在运行的任务、百分比进度条、最新步骤日志与一键跳转入口，刷新页面后可自动恢复状态与轮询。
+- **修复 Homebrew Cask 架构声明被哈希更新脚本误覆盖的问题**：收紧 `packaging/scripts/update_cask_sha.py` 正则表达式仅匹配 `sha256` 区块并恢复 `floe.rb` 的 `arch arm: "arm64", intel: "x64"`，确保 macOS Homebrew 双架构分发链接正确。"""
 
-RELEASE_CHANGELOG_EN = """### Floe v2.0.3 Release Highlights
-- **Fixed Windows Screener Mojibake & `batch_backtest_filter.py` Exit Code 3 Crash**: Enforced `UTF-8 (errors='replace')` on `sys.stdout` / `sys.stderr` at startup across `floe_app.py` (including `--run-script` subprocesses), `app_paths.py`, and screener/collector scripts, preventing Windows `cp936/GBK` consoles from raising `UnicodeEncodeError` on `\ufffd` or status symbols during batch preflight.
-- **Dual-Encoding Subprocess Stream Decoding**: Upgraded real-time pipe readers across market screening, full/quick analysis, strategy backtest, sector analysis, and `check_data_updates.py` to decode `UTF-8` with automatic `GB18030` fallback, while ensuring `CREATE_NO_WINDOW` across all Windows subprocess calls.
-- **Packaged `config.py` Auto-Fallback**: Added automatic fallback initialization from `config.example.py` in both `packaging/pyinstaller/floe.spec` and `app_paths.activate_runtime_paths()` for clean build environments."""
+RELEASE_CHANGELOG_EN = """### Floe v2.1.0 Release Highlights
+- **Global Single-Task Execution Guard**: Added a thread-safe global active-task coordinator (`try_acquire_active_task` / `get_active_task_info`) in `api/common.py` and `GET /api/active_task` across market screening, backtesting, quick/full stock AI, sector AI/collection, and ops scripts; enabled `threaded=True` on `web_ui.py` and `floe_app.py --web` so status polling remains responsive during synchronous ops commands.
+- **Dynamic Running Button State & Conflict Progress Modal**: The active task's start button transitions to a loading state showing the running task name, while clicking any other task button opens a live modal displaying the active task, progress bar, latest step output, and a quick-jump button (auto-restoring after page refresh).
+- **Fixed Homebrew Cask `arch` Mapping**: Restricted `packaging/scripts/update_cask_sha.py` regex replacement to the `sha256` block and restored `arch arm: "arm64", intel: "x64"` in `floe.rb` for macOS Homebrew distribution."""

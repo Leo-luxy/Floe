@@ -444,7 +444,7 @@ def main():
         print(f'🐧 {version.APP_NAME} v{version.APP_VERSION} 已启动：{url}')
         if '--no-browser' not in args:
             threading.Timer(0.8, lambda: webbrowser.open(url)).start()
-        web_ui.app.run(host=host, port=port, debug=debug, use_reloader=False)
+        web_ui.app.run(host=host, port=port, debug=debug, use_reloader=False, threaded=True)
         return 0
 
     # 桌面原生窗口模式：后台守护线程运行 Flask，主线程驱动原生 WebView 与菜单栏小企鹅图标

@@ -6,7 +6,7 @@
     <title>Floe · 适合中国宝宝体质的 A 股选股软件</title>
     <link id="page-favicon" rel="icon" type="image/png" href="/static/icons/favicon_bull.png?v=2.0.3">
     <link href="/static/vendor/bootstrap.min.css" rel="stylesheet">
-    <link href="/static/css/workbench.css?v=2.0.2" rel="stylesheet">
+    <link href="/static/css/workbench.css?v=2.1.0" rel="stylesheet">
     <script>
         // 首屏渲染前同步深浅色主题，消除闪烁
         (function () {
@@ -20,7 +20,7 @@
     </script>
     <script src="/static/vendor/bootstrap.bundle.min.js"></script>
     <script src="/static/vendor/marked.min.js"></script>
-    <script src="/static/js/i18n.js?v=2.0.3"></script>
+    <script src="/static/js/i18n.js?v=2.1.0"></script>
 </head>
 <body>
 <div class="app-shell">
@@ -200,7 +200,7 @@
                                 <input class="form-check-input m-0" type="checkbox" id="selection-detailed" value="detailed" checked>
                                 <span>步骤 2：批量趋势回测精筛</span>
                             </label>
-                            <button class="btn-wb-primary" onclick="runStockSelection()">▶ 开始市场选股</button>
+                            <button class="btn-wb-primary" id="btn-start-selection" onclick="runStockSelection()">▶ 开始市场选股</button>
                         </div>
 
                         <div class="wb-toolbar-group">
@@ -360,7 +360,7 @@
                         </div>
 
                         <div class="wb-toolbar-group">
-                            <button class="btn-wb-primary" onclick="runBacktest()">▶ 开始策略回测</button>
+                            <button class="btn-wb-primary" id="btn-start-backtest" onclick="runBacktest()">▶ 开始策略回测</button>
                         </div>
                     </div>
 
@@ -440,7 +440,7 @@
                             </div>
                             <div class="wb-toolbar-group">
                                 <button class="btn-wb-secondary" onclick="quickAddCurrentAiStockToWatchlist()">☆ 加入关注池</button>
-                                <button class="btn-wb-primary" onclick="startQuickAnalysis()">▶ 开始快速研判</button>
+                                <button class="btn-wb-primary" id="btn-start-quick-ai" onclick="startQuickAnalysis()">▶ 开始快速研判</button>
                             </div>
                         </div>
 
@@ -466,7 +466,7 @@
                             </div>
                             <div class="wb-toolbar-group">
                                 <button class="btn-wb-secondary" onclick="loadReports()">📂 查看该股已有报告</button>
-                                <button class="btn-wb-primary" onclick="startAnalysis()">▶ 开始完整五维分析</button>
+                                <button class="btn-wb-primary" id="btn-start-full-ai" onclick="startAnalysis()">▶ 开始完整五维分析</button>
                             </div>
                         </div>
 
@@ -535,8 +535,8 @@
                         </div>
 
                         <div class="d-flex gap-2 mb-4">
-                            <button class="btn-wb-primary flex-grow-1 justify-content-center" onclick="startSectorAnalysis()">▶ 开始 AI 分析</button>
-                            <button class="btn-wb-secondary" onclick="startSectorDataCollection()">⬇ 更新数据</button>
+                            <button class="btn-wb-primary flex-grow-1 justify-content-center" id="btn-start-sector-ai" onclick="startSectorAnalysis()">▶ 开始 AI 分析</button>
+                            <button class="btn-wb-secondary" id="btn-start-sector-collect" onclick="startSectorDataCollection()">⬇ 更新数据</button>
                         </div>
 
                         <hr style="border-color:var(--border-color);">
@@ -906,7 +906,7 @@
                                 <div class="p-3 rounded border flex-grow-1" style="background:var(--bg-subtle);border-color:var(--border-color)!important;">
                                     <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
                                         <div class="fw-bold">🔄 软件版本与检查更新</div>
-                                        <span class="stock-code-pill" id="set-app-version-pill" data-no-i18n="1">Floe v2.0.2</span>
+                                        <span class="stock-code-pill" id="set-app-version-pill" data-no-i18n="1">Floe v2.1.0</span>
                                     </div>
                                     <div class="small text-muted mb-3" id="set-app-channel-desc" data-no-i18n="1">
                                         Channel: detecting...
@@ -1015,7 +1015,7 @@
                                 </select>
                                 <input type="text" id="detailed-stock-code" class="form-control form-control-sm code-font"
                                        style="width:140px;" placeholder="6位股票代码">
-                                <button class="btn-wb-primary" onclick="executeDetailedFunction()">▶ 执行操作</button>
+                                <button class="btn-wb-primary" id="btn-start-detailed-ops" onclick="executeDetailedFunction()">▶ 执行操作</button>
                             </div>
                         </div>
                         <div id="detailed-result" class="text-muted small">请选择操作类型并输入股票代码执行</div>
@@ -1033,7 +1033,7 @@
                                 <select id="program-select" class="form-select form-select-sm" style="max-width:380px;"></select>
                                 <input type="text" id="single-function-stock-code" class="form-control form-control-sm code-font"
                                        style="width:140px;" placeholder="6位股票代码">
-                                <button class="btn-wb-primary" onclick="executeSingleFunction()">▶ 运行脚本</button>
+                                <button class="btn-wb-primary" id="btn-start-single-script" onclick="executeSingleFunction()">▶ 运行脚本</button>
                             </div>
                         </div>
                         <div id="single-function-result" class="text-muted small">请选择脚本并输入股票代码运行</div>
@@ -1091,7 +1091,7 @@
                     <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
                         <div>
                             <span class="small text-muted">当前版本</span>
-                            <span class="stock-code-pill ms-2" id="about-version-badge" data-no-i18n="1">v2.0.2</span>
+                            <span class="stock-code-pill ms-2" id="about-version-badge" data-no-i18n="1">v2.1.0</span>
                         </div>
                         <div class="d-flex gap-2">
                             <button type="button" class="btn-wb-secondary" id="btn-toggle-changelog" onclick="toggleAboutChangelog()">📋 查看更新内容</button>
@@ -1165,6 +1165,49 @@
     </div>
 </div>
 
+<!-- 任务互斥提示弹窗（当有任务运行时点击其他“开始任务”按钮弹出） -->
+<div class="modal fade" id="taskConflictModal" tabindex="-1" aria-labelledby="taskConflictModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border-color);">
+            <div class="modal-header border-0 pb-1">
+                <h5 class="modal-title fs-6 fw-bold" id="taskConflictModalLabel">⏳ 当前已有任务正在运行</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body pt-2 pb-3 px-4">
+                <p class="small text-muted mb-3">
+                    当前版本暂不支持同时执行多项任务，请等待下方正在运行的任务完成后再试。
+                </p>
+
+                <div class="conflict-task-card mb-3">
+                    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+                        <div class="small text-muted">正在运行的任务</div>
+                        <span class="sig-badge sig-hold" id="conflict-modal-task-name">--</span>
+                    </div>
+                    <div class="small fw-semibold mb-2" id="conflict-modal-task-detail" data-no-i18n="1" style="color:var(--text-primary);"></div>
+
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                        <span class="small text-muted">当前进度</span>
+                        <span class="small fw-bold code-font" id="conflict-modal-progress-pct">0%</span>
+                    </div>
+                    <div class="progress mb-2" style="height: 18px;">
+                        <div class="progress-bar progress-bar-striped progress-bar-animated" id="conflict-modal-progress-bar"
+                             role="progressbar" style="width: 0%; background-color: var(--brand-primary);"
+                             aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">0%</div>
+                    </div>
+
+                    <div class="small text-muted mb-1">当前步骤 / 最新动态</div>
+                    <div class="conflict-step-box code-font" id="conflict-modal-step-text" data-no-i18n="1">正在执行中，请稍候...</div>
+                </div>
+
+                <div class="d-flex justify-content-end gap-2">
+                    <button type="button" class="btn-wb-secondary" data-bs-dismiss="modal">知道了</button>
+                    <button type="button" class="btn-wb-primary" id="conflict-modal-jump-btn" onclick="jumpFromConflictModal()">前往查看该任务 →</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script>
     // ==================== 全局工作台状态与通用工具 ====================
     let wbWatchlistMap = new Map();       // normalizedCode -> stockName
@@ -1179,6 +1222,86 @@
     let wbWatchlistFilter = 'all';
     let wbArchiveStocksCache = [];
     let wbActiveTaskPage = '';
+    let wbActiveTaskState = null;
+    let wbMarkedRunningButtons = new Set();
+    let wbConflictPollTimer = null;
+    let wbFallbackWatchTimer = null;
+    let wbConflictModalBound = false;
+
+    const WB_TASK_BUTTON_META = {
+        'selection': {
+            btnId: 'btn-start-selection',
+            pageKey: 'selection',
+            taskName: '市场选股',
+            idleText: '▶ 开始市场选股',
+            idleEn: '▶ Run Market Screener',
+            runningText: '正在进行市场选股',
+            runningEn: 'Running Market Screener...',
+        },
+        'backtest': {
+            btnId: 'btn-start-backtest',
+            pageKey: 'backtest',
+            taskName: '策略回测',
+            idleText: '▶ 开始策略回测',
+            idleEn: '▶ Run Backtest',
+            runningText: '正在进行策略回测',
+            runningEn: 'Running Backtest...',
+        },
+        'ai-quick': {
+            btnId: 'btn-start-quick-ai',
+            pageKey: 'ai-quick',
+            taskName: '快速研判',
+            idleText: '▶ 开始快速研判',
+            idleEn: '▶ Run Quick AI',
+            runningText: '正在进行快速研判',
+            runningEn: 'Running Quick AI...',
+        },
+        'ai-full': {
+            btnId: 'btn-start-full-ai',
+            pageKey: 'ai-full',
+            taskName: '完整五维分析',
+            idleText: '▶ 开始完整五维分析',
+            idleEn: '▶ Run Full 5D Analysis',
+            runningText: '正在进行完整五维分析',
+            runningEn: 'Running Full 5D Analysis...',
+        },
+        'sector-analyze': {
+            btnId: 'btn-start-sector-ai',
+            pageKey: 'sector',
+            taskName: '板块 AI 分析',
+            idleText: '▶ 开始 AI 分析',
+            idleEn: '▶ Run AI Analysis',
+            runningText: '正在进行板块 AI 分析',
+            runningEn: 'Running Sector AI...',
+        },
+        'sector-collect': {
+            btnId: 'btn-start-sector-collect',
+            pageKey: 'sector',
+            taskName: '板块数据更新',
+            idleText: '⬇ 更新数据',
+            idleEn: '⬇ Update Data',
+            runningText: '正在进行板块数据更新',
+            runningEn: 'Updating Sector Data...',
+        },
+        'ops-detailed': {
+            btnId: 'btn-start-detailed-ops',
+            pageKey: 'settings-detailed',
+            taskName: '数据操作',
+            idleText: '▶ 执行操作',
+            idleEn: '▶ Execute',
+            runningText: '正在进行数据操作',
+            runningEn: 'Running Data Ops...',
+        },
+        'ops-single': {
+            btnId: 'btn-start-single-script',
+            pageKey: 'settings-single',
+            taskName: '脚本运行',
+            idleText: '▶ 运行脚本',
+            idleEn: '▶ Run Script',
+            runningText: '正在进行脚本运行',
+            runningEn: 'Running Script...',
+        },
+    };
 
     function todayStr() {
         const d = new Date();
@@ -1224,26 +1347,311 @@
         }, 2800);
     }
 
-    function wbSetGlobalTask(pageKey, label, running) {
+    function wbNormalizeServerActiveTask(serverTask) {
+        if (!serverTask || typeof serverTask !== 'object') return null;
+        let taskKey = serverTask.task_key || '';
+        const pageKey = serverTask.page_key || '';
+        if (!taskKey && pageKey) {
+            const matched = Object.entries(WB_TASK_BUTTON_META).find(([, m]) => m.pageKey === pageKey);
+            if (matched) taskKey = matched[0];
+        }
+        const meta = WB_TASK_BUTTON_META[taskKey] || {};
+        let prog = Number(serverTask.progress);
+        if (isNaN(prog)) prog = 0;
+        prog = Math.max(0, Math.min(100, Math.round(prog)));
+        return {
+            taskKey: taskKey,
+            pageKey: pageKey || meta.pageKey || '',
+            taskId: serverTask.task_id || '',
+            taskName: serverTask.task_name || meta.taskName || '后台任务',
+            taskDetail: serverTask.task_detail || '',
+            progress: prog,
+            progressLabel: serverTask.progress_label || '',
+            latestMessage: serverTask.latest_message || '',
+            status: serverTask.status || 'running',
+            extra: serverTask.extra || {},
+        };
+    }
+
+    function wbSyncTaskButtons() {
+        const activeKey = wbActiveTaskState ? wbActiveTaskState.taskKey : '';
+        Object.entries(WB_TASK_BUTTON_META).forEach(([key, meta]) => {
+            const btn = document.getElementById(meta.btnId);
+            if (!btn) return;
+            if (activeKey && key === activeKey) {
+                btn.disabled = true;
+                btn.classList?.add('is-task-running');
+                wbMarkedRunningButtons.add(meta.btnId);
+                const runText = (typeof window !== 'undefined' && typeof window.wbT === 'function')
+                    ? window.wbT(meta.runningText, meta.runningEn || meta.runningText)
+                    : meta.runningText;
+                btn.innerHTML = `<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span><span>${escapeHtml(runText)}</span>`;
+            } else if (wbMarkedRunningButtons.has(meta.btnId)) {
+                wbMarkedRunningButtons.delete(meta.btnId);
+                btn.disabled = false;
+                btn.classList?.remove('is-task-running');
+                const idleText = (typeof window !== 'undefined' && typeof window.wbT === 'function')
+                    ? window.wbT(meta.idleText, meta.idleEn || meta.idleText)
+                    : meta.idleText;
+                btn.textContent = idleText;
+            }
+        });
+    }
+
+    function wbRenderConflictModal() {
+        const nameEl = document.getElementById('conflict-modal-task-name');
+        const detailEl = document.getElementById('conflict-modal-task-detail');
+        const pctEl = document.getElementById('conflict-modal-progress-pct');
+        const barEl = document.getElementById('conflict-modal-progress-bar');
+        const stepEl = document.getElementById('conflict-modal-step-text');
+        const jumpBtn = document.getElementById('conflict-modal-jump-btn');
+        if (!nameEl || !barEl) return;
+
+        if (!wbActiveTaskState) {
+            nameEl.textContent = '已完成';
+            if (detailEl) detailEl.textContent = '';
+            if (pctEl) pctEl.textContent = '100%';
+            barEl.style.width = '100%';
+            barEl.setAttribute('aria-valuenow', '100');
+            barEl.textContent = '100%';
+            if (stepEl) stepEl.textContent = '✅ 当前任务已完成，现在可以关闭弹窗开始新任务';
+            if (jumpBtn) jumpBtn.style.display = 'none';
+            return;
+        }
+
+        const prog = Math.max(0, Math.min(100, Math.round(Number(wbActiveTaskState.progress) || 0)));
+        nameEl.textContent = wbActiveTaskState.taskName || '后台任务';
+        if (detailEl) {
+            detailEl.textContent = wbActiveTaskState.taskDetail || '';
+            detailEl.style.display = wbActiveTaskState.taskDetail ? 'block' : 'none';
+        }
+        if (pctEl) pctEl.textContent = `${prog}%`;
+        barEl.style.width = `${prog}%`;
+        barEl.setAttribute('aria-valuenow', String(prog));
+        barEl.textContent = `${prog}%`;
+
+        const stepText = wbActiveTaskState.progressLabel || wbActiveTaskState.latestMessage || '正在执行中，请稍候...';
+        if (stepEl) stepEl.textContent = stepText;
+        if (jumpBtn) jumpBtn.style.display = wbActiveTaskState.pageKey ? 'inline-flex' : 'none';
+    }
+
+    function wbStopConflictModalPolling() {
+        if (wbConflictPollTimer) {
+            clearInterval(wbConflictPollTimer);
+            wbConflictPollTimer = null;
+        }
+    }
+
+    function wbApplyActiveTaskPill(state) {
         const pill = document.getElementById('global-task-pill');
         const text = document.getElementById('global-task-text');
         if (!pill || !text) return;
-        if (running) {
-            wbActiveTaskPage = pageKey;
-            text.textContent = label;
+        if (state) {
+            wbActiveTaskPage = state.pageKey || wbActiveTaskPage;
+            const progStr = state.progress > 0 ? ` ${state.progress}%` : '...';
+            text.textContent = `${state.taskName}${progStr}`;
             pill.style.display = 'inline-flex';
-        } else if (wbActiveTaskPage === pageKey) {
+        } else {
             wbActiveTaskPage = '';
             pill.style.display = 'none';
         }
     }
 
+    function wbRefreshActiveTaskFromServerOnce() {
+        return fetch('/api/active_task', { cache: 'no-store' })
+            .then(r => r.json())
+            .then(data => {
+                if (!data || !data.success) return;
+                if (data.has_active_task && data.active_task) {
+                    wbActiveTaskState = wbNormalizeServerActiveTask(data.active_task);
+                    wbSyncTaskButtons();
+                    wbApplyActiveTaskPill(wbActiveTaskState);
+                } else if (wbActiveTaskState) {
+                    const ageMs = Date.now() - (wbActiveTaskState._startedMs || 0);
+                    if (wbActiveTaskState.taskId || !wbActiveTaskState._startedMs || ageMs > 1500) {
+                        wbActiveTaskState = null;
+                        wbSyncTaskButtons();
+                        wbApplyActiveTaskPill(null);
+                        wbStopConflictModalPolling();
+                    }
+                }
+                const modalEl = document.getElementById('taskConflictModal');
+                if (modalEl && modalEl.classList?.contains('show')) {
+                    wbRenderConflictModal();
+                }
+            })
+            .catch(() => {});
+    }
+
+    function wbShowTaskConflictModal(serverActiveTask = null) {
+        if (serverActiveTask) {
+            wbActiveTaskState = wbNormalizeServerActiveTask(serverActiveTask);
+            wbSyncTaskButtons();
+            wbApplyActiveTaskPill(wbActiveTaskState);
+        }
+        wbRenderConflictModal();
+
+        const modalEl = document.getElementById('taskConflictModal');
+        if (modalEl) {
+            if (!wbConflictModalBound && typeof modalEl.addEventListener === 'function') {
+                wbConflictModalBound = true;
+                modalEl.addEventListener('hidden.bs.modal', wbStopConflictModalPolling);
+            }
+            if (typeof bootstrap !== 'undefined' && bootstrap.Modal) {
+                bootstrap.Modal.getOrCreateInstance(modalEl).show();
+            }
+            wbStopConflictModalPolling();
+            wbRefreshActiveTaskFromServerOnce();
+            wbConflictPollTimer = setInterval(() => {
+                if (!modalEl.classList?.contains('show')) {
+                    wbStopConflictModalPolling();
+                    return;
+                }
+                wbRefreshActiveTaskFromServerOnce();
+            }, 1500);
+        }
+    }
+
+    function wbGuardTaskStart(tryingTaskKey) {
+        if (wbActiveTaskState) {
+            wbShowTaskConflictModal();
+            return false;
+        }
+        return true;
+    }
+
+    function wbBeginActiveTask(taskKey, taskDetail = '', initialMsg = '正在启动任务...') {
+        const meta = WB_TASK_BUTTON_META[taskKey] || {};
+        wbActiveTaskState = {
+            taskKey: taskKey,
+            pageKey: meta.pageKey || taskKey,
+            taskId: '',
+            taskName: meta.taskName || '后台任务',
+            taskDetail: taskDetail || '',
+            progress: 0,
+            progressLabel: initialMsg,
+            latestMessage: initialMsg,
+            status: 'pending',
+            extra: {},
+            _startedMs: Date.now(),
+        };
+        wbSyncTaskButtons();
+        wbSetGlobalTask(wbActiveTaskState.pageKey, initialMsg, true);
+    }
+
+    function wbUpdateActiveTaskDetail(pageKey, progress, progressLabel = '', latestMessage = '') {
+        if (!wbActiveTaskState) return;
+        if (pageKey && wbActiveTaskState.pageKey && wbActiveTaskState.pageKey !== pageKey) return;
+        const p = Number(progress);
+        if (!isNaN(p)) {
+            wbActiveTaskState.progress = Math.max(0, Math.min(100, Math.round(p)));
+        }
+        if (progressLabel !== undefined && progressLabel !== null && String(progressLabel).trim()) {
+            wbActiveTaskState.progressLabel = String(progressLabel).trim();
+        }
+        if (latestMessage !== undefined && latestMessage !== null && String(latestMessage).trim()) {
+            wbActiveTaskState.latestMessage = String(latestMessage).trim();
+        }
+        const modalEl = document.getElementById('taskConflictModal');
+        if (modalEl && modalEl.classList?.contains('show')) {
+            wbRenderConflictModal();
+        }
+    }
+
+    function wbSetGlobalTask(pageKey, label, running) {
+        const pill = document.getElementById('global-task-pill');
+        const text = document.getElementById('global-task-text');
+        if (running) {
+            wbActiveTaskPage = pageKey;
+            if (text) text.textContent = label;
+            if (pill) pill.style.display = 'inline-flex';
+            if (wbActiveTaskState && (!pageKey || wbActiveTaskState.pageKey === pageKey)) {
+                const pctMatch = String(label || '').match(/(\d+)\s*%/);
+                if (pctMatch) {
+                    wbActiveTaskState.progress = Math.max(0, Math.min(100, parseInt(pctMatch[1], 10)));
+                }
+                const modalEl = document.getElementById('taskConflictModal');
+                if (modalEl && modalEl.classList?.contains('show')) {
+                    wbRenderConflictModal();
+                }
+            }
+        } else if (wbActiveTaskPage === pageKey || (wbActiveTaskState && wbActiveTaskState.pageKey === pageKey)) {
+            wbActiveTaskPage = '';
+            if (pill) pill.style.display = 'none';
+            if (wbActiveTaskState && (!pageKey || wbActiveTaskState.pageKey === pageKey)) {
+                wbActiveTaskState = null;
+                wbSyncTaskButtons();
+                const modalEl = document.getElementById('taskConflictModal');
+                if (modalEl && modalEl.classList?.contains('show')) {
+                    wbRenderConflictModal();
+                }
+            }
+        }
+    }
+
+    function jumpFromConflictModal() {
+        const modalEl = document.getElementById('taskConflictModal');
+        if (modalEl && typeof bootstrap !== 'undefined' && bootstrap.Modal) {
+            const inst = bootstrap.Modal.getInstance(modalEl);
+            if (inst) inst.hide();
+        }
+        jumpToActiveTask();
+    }
+
     function jumpToActiveTask() {
-        if (wbActiveTaskPage === 'selection') showStockSelection();
-        else if (wbActiveTaskPage === 'backtest') showBacktestPage();
-        else if (wbActiveTaskPage === 'ai-quick') showAiAnalysisHub('quick');
-        else if (wbActiveTaskPage === 'ai-full') showAiAnalysisHub('full');
-        else if (wbActiveTaskPage === 'sector') showSectorAnalysis();
+        const target = wbActiveTaskPage || (wbActiveTaskState ? wbActiveTaskState.pageKey : '');
+        if (target === 'selection') showStockSelection();
+        else if (target === 'backtest') showBacktestPage();
+        else if (target === 'ai-quick') showAiAnalysisHub('quick');
+        else if (target === 'ai-full') showAiAnalysisHub('full');
+        else if (target === 'sector') showSectorAnalysis();
+        else if (target === 'settings-detailed') showSettingsPage('detailed');
+        else if (target === 'settings-single') showSettingsPage('single');
+    }
+
+    function wbSyncActiveTaskFromServer() {
+        fetch('/api/active_task', { cache: 'no-store' })
+            .then(r => r.json())
+            .then(data => {
+                if (!data || !data.success || !data.has_active_task || !data.active_task) return;
+                const t = wbNormalizeServerActiveTask(data.active_task);
+                wbActiveTaskState = t;
+                wbSyncTaskButtons();
+                wbApplyActiveTaskPill(t);
+
+                if (t.taskKey === 'selection' && t.taskId) {
+                    const box = document.getElementById('selection-task-status');
+                    if (box) box.style.display = 'block';
+                    pollSelectionTaskStatus(t.taskId);
+                } else if (t.taskKey === 'backtest' && t.taskId) {
+                    const box = document.getElementById('backtest-task-status');
+                    if (box) box.style.display = 'block';
+                    pollBacktestStatus(t.taskId);
+                } else if (t.taskKey === 'ai-quick' && t.taskId) {
+                    const box = document.getElementById('quick-task-status');
+                    if (box) box.style.display = 'block';
+                    pollQuickTaskStatus(t.taskId, t.extra?.stock_code || '');
+                } else if (t.taskKey === 'ai-full' && t.taskId) {
+                    const box = document.getElementById('task-status');
+                    if (box) box.style.display = 'block';
+                    pollTaskStatus(t.taskId);
+                } else if ((t.taskKey === 'sector-collect' || t.taskKey === 'sector-analyze') && t.taskId) {
+                    const box = document.getElementById('sector-task-status');
+                    if (box) box.style.display = 'block';
+                    pollSectorTaskStatus(t.taskId);
+                } else if (t.taskKey === 'ops-detailed' || t.taskKey === 'ops-single') {
+                    if (wbFallbackWatchTimer) clearInterval(wbFallbackWatchTimer);
+                    wbFallbackWatchTimer = setInterval(() => {
+                        if (!wbActiveTaskState) {
+                            clearInterval(wbFallbackWatchTimer);
+                            wbFallbackWatchTimer = null;
+                            return;
+                        }
+                        wbRefreshActiveTaskFromServerOnce();
+                    }, 2000);
+                }
+            })
+            .catch(() => {});
     }
 
     // 深浅色切换
@@ -1536,7 +1944,7 @@
 
                 // 3. 同步版本、安装渠道、数据隔离目录、更新内容及语言/图标/代理状态
                 if (data.app) {
-                    const verNum = data.app.version || '2.0.2';
+                    const verNum = data.app.version || '2.1.0';
                     const verStr = `${data.app.name || 'Floe'} v${verNum}`;
                     const pillVer = document.getElementById('set-app-version-pill');
                     if (pillVer) pillVer.textContent = verStr;
@@ -1655,7 +2063,7 @@
         if (willOpen) {
             const isEn = (typeof window.wbGetLang === 'function' && window.wbGetLang() === 'en-US');
             const md = isEn ? (wbCachedChangelog.en || wbCachedChangelog.zh) : (wbCachedChangelog.zh || wbCachedChangelog.en);
-            clBox.innerHTML = md ? marked.parse(md) : '<div class="text-muted">Floe v2.0.2</div>';
+            clBox.innerHTML = md ? marked.parse(md) : '<div class="text-muted">Floe v2.1.0</div>';
             clBox.style.display = 'block';
             if (btnCl) btnCl.textContent = window.wbT ? window.wbT('▴ 收起更新内容', '▴ Hide Changelog') : '▴ 收起更新内容';
         } else {
@@ -1732,6 +2140,7 @@
             window.wbApplyLanguage(target);
         }
         syncThemeButton();
+        if (typeof wbSyncTaskButtons === 'function') wbSyncTaskButtons();
         fetch('/api/settings/save_preferences', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -2098,6 +2507,7 @@
     }
 
     function startAnalysis() {
+        if (typeof wbGuardTaskStart === 'function' && !wbGuardTaskStart('ai-full')) return;
         const stockCode = document.getElementById('stock-code').value.trim();
         if (!stockCode || stockCode.length !== 6 || !/^\d+$/.test(stockCode)) {
             showToast('请输入 6 位数字股票代码', 'error');
@@ -2105,7 +2515,11 @@
         }
         document.getElementById('task-status').style.display = 'block';
         document.getElementById('status-content').innerHTML = '<div class="text-center py-3"><div class="spinner-border text-primary" role="status"></div></div>';
-        wbSetGlobalTask('ai-full', `完整分析 ${stockCode}...`, true);
+        if (typeof wbBeginActiveTask === 'function') {
+            wbBeginActiveTask('ai-full', normalizeTickerClient(stockCode), `完整分析 ${stockCode}...`);
+        } else {
+            wbSetGlobalTask('ai-full', `完整分析 ${stockCode}...`, true);
+        }
 
         fetch('/api/analyze', {
             method: 'POST',
@@ -2115,7 +2529,13 @@
         .then(response => response.json())
         .then(data => {
             if (data.success) {
+                if (wbActiveTaskState && wbActiveTaskState.taskKey === 'ai-full') wbActiveTaskState.taskId = data.task_id;
                 pollTaskStatus(data.task_id);
+            } else if (data.task_conflict && data.active_task) {
+                wbSetGlobalTask('ai-full', '', false);
+                document.getElementById('task-status').style.display = 'none';
+                document.getElementById('status-content').innerHTML = '';
+                if (typeof wbShowTaskConflictModal === 'function') wbShowTaskConflictModal(data.active_task);
             } else {
                 wbSetGlobalTask('ai-full', '', false);
                 document.getElementById('status-content').innerHTML = `<div class="alert alert-danger">${escapeHtml(data.message)}</div>`;
@@ -2137,6 +2557,7 @@
                 let messages = data.messages || [];
                 let messageHtml = messages.map(msg => `<div>${escapeHtml(msg)}</div>`).join('');
                 if (typeof wbSetGlobalTask === 'function') wbSetGlobalTask('ai-full', `完整分析 ${progress}%`, true);
+                if (typeof wbUpdateActiveTaskDetail === 'function') wbUpdateActiveTaskDetail('ai-full', progress, '', messages[messages.length - 1] || '');
                 statusContent.innerHTML = `
                     <div class="progress mb-2" style="height: 20px;">
                         <div class="progress-bar" role="progressbar" style="width: ${progress}%" aria-valuenow="${progress}" aria-valuemin="0" aria-valuemax="100">${progress}%</div>
@@ -2245,6 +2666,7 @@
     }
 
     function startQuickAnalysis() {
+        if (typeof wbGuardTaskStart === 'function' && !wbGuardTaskStart('ai-quick')) return;
         const stockCode = document.getElementById('quick-stock-code').value.trim();
         const analysisType = 'daily';
         const strategyMode = document.querySelector('input[name="strategy-mode"]:checked').value;
@@ -2256,7 +2678,12 @@
 
         document.getElementById('quick-task-status').style.display = 'block';
         document.getElementById('quick-status-content').innerHTML = '<div class="text-center py-3"><div class="spinner-border text-primary" role="status"></div></div>';
-        wbSetGlobalTask('ai-quick', `快速研判 ${stockCode}...`, true);
+        const modeZh = { short: '短期交易', medium: '中期持仓', long: '长期投资' }[strategyMode] || strategyMode;
+        if (typeof wbBeginActiveTask === 'function') {
+            wbBeginActiveTask('ai-quick', `${normalizeTickerClient(stockCode)} · ${modeZh}`, `快速研判 ${stockCode}...`);
+        } else {
+            wbSetGlobalTask('ai-quick', `快速研判 ${stockCode}...`, true);
+        }
 
         fetch('/api/quick_analyze', {
             method: 'POST',
@@ -2266,7 +2693,13 @@
         .then(response => response.json())
         .then(data => {
             if (data.success) {
+                if (wbActiveTaskState && wbActiveTaskState.taskKey === 'ai-quick') wbActiveTaskState.taskId = data.task_id;
                 pollQuickTaskStatus(data.task_id, stockCode);
+            } else if (data.task_conflict && data.active_task) {
+                wbSetGlobalTask('ai-quick', '', false);
+                document.getElementById('quick-task-status').style.display = 'none';
+                document.getElementById('quick-status-content').innerHTML = '';
+                if (typeof wbShowTaskConflictModal === 'function') wbShowTaskConflictModal(data.active_task);
             } else {
                 wbSetGlobalTask('ai-quick', '', false);
                 document.getElementById('quick-status-content').innerHTML = `<div class="alert alert-danger">${escapeHtml(data.message)}</div>`;
@@ -2288,6 +2721,7 @@
                 let messages = data.messages || [];
                 let messageHtml = messages.map(msg => `<div>${escapeHtml(msg)}</div>`).join('');
                 if (typeof wbSetGlobalTask === 'function') wbSetGlobalTask('ai-quick', `快速研判 ${stockCode} ${progress}%`, true);
+                if (typeof wbUpdateActiveTaskDetail === 'function') wbUpdateActiveTaskDetail('ai-quick', progress, '', messages[messages.length - 1] || '');
                 statusContent.innerHTML = `
                     <div class="progress mb-2" style="height: 20px;">
                         <div class="progress-bar" role="progressbar" style="width: ${progress}%" aria-valuenow="${progress}" aria-valuemin="0" aria-valuemax="100">${progress}%</div>
@@ -2658,12 +3092,18 @@
         const functionType = document.getElementById('detailed-function').value;
         const dataType = document.getElementById('data-type').value;
         const stockCode = document.getElementById('detailed-stock-code').value.trim();
+        const needsTaskLock = (functionType !== 'query_data');
+
+        if (needsTaskLock && typeof wbGuardTaskStart === 'function' && !wbGuardTaskStart('ops-detailed')) return;
 
         if (!stockCode || stockCode.length !== 6 || !/^\d+$/.test(stockCode)) {
             showToast('请输入 6 位数字股票代码', 'error');
             return;
         }
         document.getElementById('detailed-result').innerHTML = '<div class="text-center py-3"><div class="spinner-border text-primary" role="status"></div></div>';
+        if (needsTaskLock && typeof wbBeginActiveTask === 'function') {
+            wbBeginActiveTask('ops-detailed', `${normalizeTickerClient(stockCode)} · ${dataType}`, `正在执行数据操作 ${stockCode}...`);
+        }
 
         fetch('/api/detailed_function', {
             method: 'POST',
@@ -2672,6 +3112,13 @@
         })
         .then(response => response.json())
         .then(data => {
+            if (data.task_conflict && data.active_task) {
+                if (needsTaskLock) wbSetGlobalTask('settings-detailed', '', false);
+                document.getElementById('detailed-result').innerHTML = '请选择操作类型并输入股票代码执行';
+                if (typeof wbShowTaskConflictModal === 'function') wbShowTaskConflictModal(data.active_task);
+                return;
+            }
+            if (needsTaskLock) wbSetGlobalTask('settings-detailed', '', false);
             if (data.success) {
                 if (functionType === 'query_data') {
                     try {
@@ -2700,6 +3147,7 @@
             }
         })
         .catch(error => {
+            if (needsTaskLock) wbSetGlobalTask('settings-detailed', '', false);
             document.getElementById('detailed-result').innerHTML = `<div class="alert alert-danger">执行失败：${escapeHtml(error.message)}</div>`;
         });
     }
@@ -2757,6 +3205,7 @@
     }
 
     function executeSingleFunction() {
+        if (typeof wbGuardTaskStart === 'function' && !wbGuardTaskStart('ops-single')) return;
         const category = document.getElementById('function-category').value;
         const program = document.getElementById('program-select').value;
         const stockCode = document.getElementById('single-function-stock-code').value.trim();
@@ -2766,6 +3215,9 @@
             return;
         }
         document.getElementById('single-function-result').innerHTML = '<div class="text-center py-3"><div class="spinner-border text-primary" role="status"></div></div>';
+        if (typeof wbBeginActiveTask === 'function') {
+            wbBeginActiveTask('ops-single', `${program} (${normalizeTickerClient(stockCode)})`, `正在运行 ${program}...`);
+        }
 
         fetch('/api/execute_single_function', {
             method: 'POST',
@@ -2774,6 +3226,12 @@
         })
         .then(response => response.json())
         .then(data => {
+            wbSetGlobalTask('settings-single', '', false);
+            if (data.task_conflict && data.active_task) {
+                document.getElementById('single-function-result').innerHTML = '请选择脚本并输入股票代码运行';
+                if (typeof wbShowTaskConflictModal === 'function') wbShowTaskConflictModal(data.active_task);
+                return;
+            }
             if (data.success) {
                 document.getElementById('single-function-result').innerHTML = `<div class="alert alert-success py-2">脚本运行成功</div><div class="markdown-body">${marked.parse(data.output || '')}</div>`;
             } else {
@@ -2781,6 +3239,7 @@
             }
         })
         .catch(error => {
+            wbSetGlobalTask('settings-single', '', false);
             document.getElementById('single-function-result').innerHTML = `<div class="alert alert-danger">执行失败：${escapeHtml(error.message)}</div>`;
         });
     }
@@ -2966,6 +3425,7 @@
     }
 
     function runBacktest() {
+        if (typeof wbGuardTaskStart === 'function' && !wbGuardTaskStart('backtest')) return;
         const backtestMode = document.querySelector('input[name="backtest-mode"]:checked').value;
         const skipDataUpdate = backtestMode === 'quick';
         const useSimplified = document.getElementById('use-simplified').checked;
@@ -2984,7 +3444,13 @@
 
         document.getElementById('backtest-task-status').style.display = 'block';
         document.getElementById('backtest-status-content').innerHTML = '<div class="text-center py-3"><div class="spinner-border text-primary" role="status"><span class="visually-hidden">处理中...</span></div></div>';
-        if (typeof wbSetGlobalTask === 'function') wbSetGlobalTask('backtest', '策略回测启动中...', true);
+        const flowText = skipDataUpdate ? '快速回测' : '完整流程';
+        const stratText = useSimplified ? '简化版策略' : '完整版策略';
+        if (typeof wbBeginActiveTask === 'function') {
+            wbBeginActiveTask('backtest', `${flowText} · ${stratText}`, '策略回测启动中...');
+        } else if (typeof wbSetGlobalTask === 'function') {
+            wbSetGlobalTask('backtest', '策略回测启动中...', true);
+        }
 
         fetch('/api/backtest/run_backtest', {
             method: 'POST',
@@ -2997,7 +3463,16 @@
         .then(response => response.json())
         .then(data => {
             if (data.success) {
+                if (wbActiveTaskState && wbActiveTaskState.taskKey === 'backtest') wbActiveTaskState.taskId = data.task_id;
                 pollBacktestStatus(data.task_id);
+            } else if (data.task_conflict && data.active_task) {
+                if (typeof wbSetGlobalTask === 'function') wbSetGlobalTask('backtest', '', false);
+                document.getElementById('backtest-task-status').style.display = 'none';
+                document.getElementById('backtest-status-content').innerHTML = '';
+                loadBacktestReport();
+                loadBacktestStockList();
+                loadBacktestSummaryTable();
+                if (typeof wbShowTaskConflictModal === 'function') wbShowTaskConflictModal(data.active_task);
             } else {
                 if (typeof wbSetGlobalTask === 'function') wbSetGlobalTask('backtest', '', false);
                 document.getElementById('backtest-status-content').innerHTML = `<div class="alert alert-danger">${escapeHtml(data.message)}</div>`;
@@ -3022,6 +3497,7 @@
                 let messages = data.messages || [];
                 let messageHtml = messages.map(msg => `<div>${escapeLog(msg)}</div>`).join('');
                 if (typeof wbSetGlobalTask === 'function') wbSetGlobalTask('backtest', `策略回测 ${progress}%`, true);
+                if (typeof wbUpdateActiveTaskDetail === 'function') wbUpdateActiveTaskDetail('backtest', progress, '', messages[messages.length - 1] || '');
                 statusContent.innerHTML = `
                     <div class="progress mb-3" style="height: 20px;">
                         <div class="progress-bar" role="progressbar" style="width: ${progress}%" aria-valuenow="${progress}" aria-valuemin="0" aria-valuemax="100">${progress}%</div>
@@ -3070,6 +3546,7 @@
                 let messages = data.messages || [];
                 let messageHtml = messages.map(msg => `<div>${escapeLog(msg)}</div>`).join('');
                 if (typeof wbSetGlobalTask === 'function') wbSetGlobalTask('backtest', '策略回测排队中...', true);
+                if (typeof wbUpdateActiveTaskDetail === 'function') wbUpdateActiveTaskDetail('backtest', 0, '等待处理...', messages[messages.length - 1] || '');
                 statusContent.innerHTML = `
                     <div class="progress mb-3" style="height: 20px;">
                         <div class="progress-bar" role="progressbar" style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">等待处理...</div>
@@ -3445,6 +3922,7 @@
     }
 
     function startSectorAnalysis() {
+        if (typeof wbGuardTaskStart === 'function' && !wbGuardTaskStart('sector-analyze')) return;
         const sectorType = document.querySelector('input[name="sector-type"]:checked').value;
         let sectorCode = document.getElementById('sector-selector').value;
         if (!sectorCode && sectorType === 'industry') {
@@ -3458,7 +3936,11 @@
         document.getElementById('sector-task-status').style.display = 'block';
         document.getElementById('sector-status-content').innerHTML =
             '<div class="text-center py-3"><div class="spinner-border text-primary" role="status"></div><p class="mt-2 small text-muted mb-0">正在请求本地 AI 深度分析...</p></div>';
-        wbSetGlobalTask('sector', `板块分析 ${sectorCode}...`, true);
+        if (typeof wbBeginActiveTask === 'function') {
+            wbBeginActiveTask('sector-analyze', sectorCode, `板块分析 ${sectorCode}...`);
+        } else {
+            wbSetGlobalTask('sector', `板块分析 ${sectorCode}...`, true);
+        }
 
         fetch('/api/sector_analyze', {
             method: 'POST',
@@ -3468,7 +3950,13 @@
         .then(r => r.json())
         .then(data => {
             if (data.success) {
+                if (wbActiveTaskState && wbActiveTaskState.taskKey === 'sector-analyze') wbActiveTaskState.taskId = data.task_id;
                 pollSectorTaskStatus(data.task_id);
+            } else if (data.task_conflict && data.active_task) {
+                wbSetGlobalTask('sector', '', false);
+                document.getElementById('sector-task-status').style.display = 'none';
+                document.getElementById('sector-status-content').innerHTML = '';
+                if (typeof wbShowTaskConflictModal === 'function') wbShowTaskConflictModal(data.active_task);
             } else {
                 wbSetGlobalTask('sector', '', false);
                 document.getElementById('sector-status-content').innerHTML = `<div class="alert alert-danger">${escapeHtml(data.message)}</div>`;
@@ -3481,11 +3969,16 @@
     }
 
     function startSectorDataCollection() {
+        if (typeof wbGuardTaskStart === 'function' && !wbGuardTaskStart('sector-collect')) return;
         const sectorType = document.querySelector('input[name="sector-type"]:checked').value;
         document.getElementById('sector-task-status').style.display = 'block';
         document.getElementById('sector-status-content').innerHTML =
             '<div class="text-center py-3"><div class="spinner-border text-primary" role="status"></div><p class="mt-2 small text-muted mb-0">正在更新板块数据...</p></div>';
-        wbSetGlobalTask('sector', '板块数据更新中...', true);
+        if (typeof wbBeginActiveTask === 'function') {
+            wbBeginActiveTask('sector-collect', `类型: ${sectorType}`, '板块数据更新中...');
+        } else {
+            wbSetGlobalTask('sector', '板块数据更新中...', true);
+        }
 
         fetch('/api/sector_collect', {
             method: 'POST',
@@ -3495,7 +3988,13 @@
         .then(r => r.json())
         .then(data => {
             if (data.success) {
+                if (wbActiveTaskState && wbActiveTaskState.taskKey === 'sector-collect') wbActiveTaskState.taskId = data.task_id;
                 pollSectorTaskStatus(data.task_id);
+            } else if (data.task_conflict && data.active_task) {
+                wbSetGlobalTask('sector', '', false);
+                document.getElementById('sector-task-status').style.display = 'none';
+                document.getElementById('sector-status-content').innerHTML = '';
+                if (typeof wbShowTaskConflictModal === 'function') wbShowTaskConflictModal(data.active_task);
             } else {
                 wbSetGlobalTask('sector', '', false);
                 document.getElementById('sector-status-content').innerHTML = `<div class="alert alert-danger">${escapeHtml(data.message)}</div>`;
@@ -3515,7 +4014,9 @@
                 if (data.status === 'running' || data.status === 'pending') {
                     let progress = data.progress || 0;
                     if (typeof wbSetGlobalTask === 'function') wbSetGlobalTask('sector', `板块任务 ${progress}%`, true);
-                    let messages = (data.messages || []).slice(-20).map(m => `<div class="small">${escapeHtml(m)}</div>`).join('');
+                    let rawMsgs = data.messages || [];
+                    if (typeof wbUpdateActiveTaskDetail === 'function') wbUpdateActiveTaskDetail('sector', progress, '', rawMsgs[rawMsgs.length - 1] || '');
+                    let messages = rawMsgs.slice(-20).map(m => `<div class="small">${escapeHtml(m)}</div>`).join('');
                     statusContent.innerHTML = `
                         <div class="progress mb-2" style="height:18px;">
                             <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: ${progress}%">${progress}%</div>
@@ -3542,6 +4043,9 @@
                     if (typeof wbSetGlobalTask === 'function') wbSetGlobalTask('sector', '', false);
                     let messages = (data.messages || []).map(m => `<div>${escapeHtml(m)}</div>`).join('');
                     statusContent.innerHTML = `<div class="alert alert-danger mb-0">❌ 任务失败：<br>${messages}</div>`;
+                } else {
+                    if (typeof wbSetGlobalTask === 'function') wbSetGlobalTask('sector', '', false);
+                    statusContent.innerHTML = '<div class="alert alert-warning mb-0">任务不存在或已过期</div>';
                 }
             })
             .catch(err => {
@@ -3607,6 +4111,7 @@
     }
 
     function runStockSelection() {
+        if (typeof wbGuardTaskStart === 'function' && !wbGuardTaskStart('selection')) return;
         const preliminary = document.getElementById('selection-preliminary').checked;
         const detailed = document.getElementById('selection-detailed').checked;
 
@@ -3619,7 +4124,14 @@
         loadSelectionResult();
         document.getElementById('selection-task-status').style.display = 'block';
         document.getElementById('selection-status-content').innerHTML = '<div class="text-center py-3"><div class="spinner-border text-primary" role="status"><span class="visually-hidden">处理中...</span></div></div>';
-        if (typeof wbSetGlobalTask === 'function') wbSetGlobalTask('selection', '市场选股启动中...', true);
+        const selDetail = (preliminary && detailed)
+            ? '全市场初筛 + 批量回测'
+            : (preliminary ? '仅全市场初筛' : '仅批量趋势回测');
+        if (typeof wbBeginActiveTask === 'function') {
+            wbBeginActiveTask('selection', selDetail, '市场选股启动中...');
+        } else if (typeof wbSetGlobalTask === 'function') {
+            wbSetGlobalTask('selection', '市场选股启动中...', true);
+        }
 
         fetch('/api/stock_selection/run', {
             method: 'POST',
@@ -3629,7 +4141,15 @@
         .then(response => response.json())
         .then(data => {
             if (data.success) {
+                if (typeof wbActiveTaskState === 'object' && wbActiveTaskState && wbActiveTaskState.taskKey === 'selection') {
+                    wbActiveTaskState.taskId = data.task_id;
+                }
                 pollSelectionTaskStatus(data.task_id);
+            } else if (data.task_conflict && data.active_task) {
+                if (typeof wbSetGlobalTask === 'function') wbSetGlobalTask('selection', '', false);
+                document.getElementById('selection-task-status').style.display = 'none';
+                document.getElementById('selection-status-content').innerHTML = '';
+                if (typeof wbShowTaskConflictModal === 'function') wbShowTaskConflictModal(data.active_task);
             } else {
                 if (typeof wbSetGlobalTask === 'function') wbSetGlobalTask('selection', '', false);
                 document.getElementById('selection-status-content').innerHTML = `<div class="alert alert-danger">${escapeHtml(data.message)}</div>`;
@@ -3653,6 +4173,9 @@
                 let messageHtml = messages.slice(-20).map(msg => `<div>${msg}</div>`).join('');
                 if (typeof wbSetGlobalTask === 'function') {
                     wbSetGlobalTask('selection', `市场选股 ${progress}% ${data.progress_label || ''}`, true);
+                }
+                if (typeof wbUpdateActiveTaskDetail === 'function') {
+                    wbUpdateActiveTaskDetail('selection', progress, data.progress_label || '', messages[messages.length - 1] || '');
                 }
                 statusContent.innerHTML = `
                     <div class="progress mb-2" style="height: 22px;">
@@ -4272,6 +4795,7 @@
 
         // 检测 AI/API 与 Tushare 配置状态（缺失时顶栏展示去设置提醒）
         refreshSettingsStatus(true);
+        if (typeof wbSyncActiveTaskFromServer === 'function') wbSyncActiveTaskFromServer();
 
         // 先静默拉取关注池计数，再默认打开 01 市场选股首屏
         refreshWatchlistSilent().finally(() => {
