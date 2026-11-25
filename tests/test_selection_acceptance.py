@@ -300,6 +300,51 @@ class SelectionAcceptance(unittest.TestCase):
         self.assertTrue(result['success'])
         self.assertTrue(any('更新过' in w for w in result['warnings']))
 
+    def test_identical_indicators_rewritten_after_result_does_not_warn(self):
+        data_dir = tempfile.mkdtemp(prefix='gp_sel_data_')
+        self.addCleanup(shutil.rmtree, data_dir, True)
+        stock_dir = os.path.join(data_dir, '600000.SH')
+        os.makedirs(stock_dir, exist_ok=True)
+        qfq_path = os.path.join(stock_dir, '600000.SH_qfq.csv')
+        ind_path = os.path.join(stock_dir, '600000.SH_indicators.csv')
+        with open(qfq_path, 'w') as fh:
+            fh.write('date,close\n2026-11-12,10.0\n')
+        with open(ind_path, 'w') as fh:
+            fh.write('date,MA5\n2026-11-12,10.0\n')
+
+        status = self.publish()
+        status['generated_at'] = '2020-01-01T00:00:00'
+        status['finished_at'] = '2020-01-01T00:05:00'
+        status['source_manifest']['600000.SH']['source_sha256'] = bf.file_hash(qfq_path)
+        status['source_manifest']['600000.SH']['indicators_sha256'] = bf.file_hash(ind_path)
+        bf.atomic_status(self.status_path, status)
+
+        with mock.patch.object(api, 'DATA_DIR', data_dir), \
+             self._patch_latest_available('20261112'):
+            result = api._read_current_holdings()
+        self.assertTrue(result['success'])
+        self.assertFalse(any('更新过' in w for w in result['warnings']))
+
+    def test_changed_qfq_after_result_triggers_warning(self):
+        data_dir = tempfile.mkdtemp(prefix='gp_sel_data_')
+        self.addCleanup(shutil.rmtree, data_dir, True)
+        stock_dir = os.path.join(data_dir, '600000.SH')
+        os.makedirs(stock_dir, exist_ok=True)
+        qfq_path = os.path.join(stock_dir, '600000.SH_qfq.csv')
+        with open(qfq_path, 'w') as fh:
+            fh.write('date,close\n2026-11-12,10.0\n')
+
+        status = self.publish()
+        status['generated_at'] = '2020-01-01T00:00:00'
+        status['finished_at'] = '2020-01-01T00:05:00'
+        bf.atomic_status(self.status_path, status)
+
+        with mock.patch.object(api, 'DATA_DIR', data_dir), \
+             self._patch_latest_available('20261112'):
+            result = api._read_current_holdings()
+        self.assertTrue(result['success'])
+        self.assertTrue(any('更新过' in w for w in result['warnings']))
+
     def test_changed_input_list_is_warning_not_error(self):
         self.publish()
         pd.DataFrame({'股票代码': ['600001.SH']}).to_csv(self.input_path, index=False)

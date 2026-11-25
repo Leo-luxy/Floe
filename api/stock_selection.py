@@ -32,6 +32,31 @@ except Exception:
     SELECTION_DIR = os.path.join(PROJECT_ROOT, "stocks_filter")
 
 
+def _has_market_or_indicator_drifted(ticker, cutoff_ts, manifest):
+    """检查单只股票的行情或指标是否在结果生成后发生过实际内容变化。"""
+    stock_dir = os.path.join(DATA_DIR, ticker)
+    checks = (
+        (os.path.join(stock_dir, '%s_qfq.csv' % ticker), 'source_sha256'),
+        (os.path.join(stock_dir, '%s_indicators.csv' % ticker), 'indicators_sha256'),
+    )
+    manifest_dict = manifest if isinstance(manifest, dict) else None
+    for file_path, manifest_key in checks:
+        try:
+            if os.path.getmtime(file_path) <= cutoff_ts:
+                continue
+        except OSError:
+            continue
+        expected_sha = manifest_dict.get(manifest_key) if manifest_dict else None
+        if not expected_sha:
+            return True
+        try:
+            if file_hash(file_path) != expected_sha:
+                return True
+        except OSError:
+            continue
+    return False
+
+
 def _read_current_holdings(base_path=None, saved=None):
     '''展示最近一次最终持仓。
 
@@ -110,14 +135,12 @@ def _read_current_holdings(base_path=None, saved=None):
             generated = None
             warnings.append('结果缺少生成时间')
         if generated is not None:
-            drifted = 0
-            for ticker in processed:
-                indicator_path = os.path.join(DATA_DIR, ticker, '%s_indicators.csv' % ticker)
-                try:
-                    if os.path.getmtime(indicator_path) > generated.timestamp() + 1:
-                        drifted += 1
-                except OSError:
-                    continue
+            cutoff_ts = generated.timestamp() + 1
+            manifest_map = manifests if isinstance(manifests, dict) else {}
+            drifted = sum(
+                1 for ticker in processed
+                if _has_market_or_indicator_drifted(ticker, cutoff_ts, manifest_map.get(ticker))
+            )
             if drifted:
                 warnings.append('%d 只股票的行情/指标在本次结果之后更新过（展示的是当时结果）' % drifted)
         if saved is None:
