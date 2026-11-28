@@ -8,11 +8,12 @@
 
 <p align="center">
   <b>适合中国宝宝体质的 A 股选股与 AI 量化工作台</b><br>
-  <sub>当前版本：<b>v2.1.0</b> ｜ <b>中文</b> · <a href="README_EN.md">English</a></sub>
+  <sub>当前版本：<b>v2.1.0</b> ｜ <a href="https://myfloeapp.com"><b>官方网站</b></a> ｜ <b>中文</b> · <a href="README_EN.md">English</a></sub>
 </p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/Version-v2.1.0-2563eb.svg" alt="Version">
+  <a href="https://myfloeapp.com"><img src="https://img.shields.io/badge/Website-myfloeapp.com-0ea5e9.svg" alt="Website"></a>
   <img src="https://img.shields.io/badge/Platform-macOS%20%7C%20Windows%20%7C%20Linux-0f172a.svg" alt="Platform">
   <img src="https://img.shields.io/badge/Distribution-Desktop%20%7C%20Homebrew%20%7C%20npm%20%7C%20Source-059669.svg" alt="Distribution">
   <img src="https://img.shields.io/badge/AI-DeepSeek%20%2F%20OpenAI%20API%20%7C%20Ollama-ea580c.svg" alt="AI">
@@ -30,6 +31,8 @@
 
 **一句话概括：用量化纪律管住手，把原本要翻十几个网页、看几十页财报才能拼出的判断，浓缩进一个干净顺手的桌面工作台。**
 
+> **🌐 官方网站与视频导览**：访问 **[myfloeapp.com](https://myfloeapp.com)** 查看 2.5K 实机工作流视频、核心特性与跨平台一键下载入口。
+>
 > **🚀 想直接开箱即用？** 跳到 **[快速安装（桌面版 / Homebrew / npm）](#-快速安装与启动四种方式任选)**，下载安装包或一行命令即可启动，**无需折腾 Python 环境**。
 >
 > **🛠️ 想从源码部署或二次开发？** 跳到 **[方式 D：从源码完整部署](#方式-d从源码完整部署适合二次开发与脚本定制)**，10 步手把手跑通。

@@ -8,11 +8,12 @@
 
 <p align="center">
   <b>A-Share Screener & Multi-Dimensional AI Quantitative Workbench Tailored for CN Investors</b><br>
-  <sub>Version: <b>v2.1.0</b> ｜ <a href="README.md">简体中文</a> · <b>English</b></sub>
+  <sub>Version: <b>v2.1.0</b> ｜ <a href="https://myfloeapp.com"><b>Official Website</b></a> ｜ <a href="README.md">简体中文</a> · <b>English</b></sub>
 </p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/Version-v2.1.0-2563eb.svg" alt="Version">
+  <a href="https://myfloeapp.com"><img src="https://img.shields.io/badge/Website-myfloeapp.com-0ea5e9.svg" alt="Website"></a>
   <img src="https://img.shields.io/badge/Platform-macOS%20%7C%20Windows%20%7C%20Linux-0f172a.svg" alt="Platform">
   <img src="https://img.shields.io/badge/Distribution-Desktop%20%7C%20Homebrew%20%7C%20npm%20%7C%20Source-059669.svg" alt="Distribution">
   <img src="https://img.shields.io/badge/AI-DeepSeek%20%2F%20OpenAI%20API%20%7C%20Ollama-ea580c.svg" alt="AI">
@@ -28,6 +29,8 @@
 
 It automatically collects and cryptographically verifies scattered market evidence—full-market daily screening, forward-adjusted OHLCV, financial statements, main fund flows, margin trading, shareholder concentration, and institutional research reports—and feeds structured summaries into either **Cloud LLM APIs (DeepSeek / any OpenAI-compatible provider)** or **local Ollama models** to produce conflict-checked, position-aware trading plans.
 
+> **🌐 Official Website & Video Tour**: Visit **[myfloeapp.com](https://myfloeapp.com)** for the 2.5K live workflow walkthrough video, feature overview, and OS-matched downloads.
+>
 > **🚀 Ready to use out of the box?** Jump straight to **[Quick Installation (Desktop / Homebrew / npm)](#-quick-installation-choose-any-method)** — zero Python or TA-Lib setup required.
 >
 > **🛠️ Building or customizing from source?** Jump to **[Method D: Full Source Deployment](#method-d-full-source-deployment-for-developers--custom-strategies)**.
